@@ -1,0 +1,12 @@
+{
+  "name": "volyx-tests",
+  "private": true,
+  "type": "module",
+  "description": "Regression suites for Volyx. `npm test` starts a throwaway copy of the app on :3100 and runs all five suites.",
+  "scripts": {
+    "test": "bash run-all.sh"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1"
+  }
+}
