@@ -378,16 +378,18 @@ The interface follows three rules, and `tests/design.ui.test.mjs` enforces them.
 **Colour — the 60 / 30 / 10 rule.** Every token lives in the `:root` block of
 `public/styles.css`:
 
-| Share | Role | Tokens |
-|---|---|---|
-| **60%** | neutrals: canvas, cards, body text | `--n-0 --n-25 --n-50 --n-100 --n-200`, `--ink --ink-2 --ink-3 --line` |
-| **30%** | brand green: top bar, headings, links, table structure | `--brand-900 … --brand-100` |
-| **10%** | amber accent: the one action that matters (primary button, active nav, focus ring, key figure) | `--accent-700 … --accent-100`, `--accent-on` |
+| Share | Role | Tokens | Where you see it |
+|---|---|---|---|
+| **60%** | **blue** — the dominant surface | `--n-0 … --n-200` (`--n-50 #e8f0f9`), `--blue-100 … --blue-900`, `--ink … --ink-3` | canvas, cards, tables, body text |
+| **30%** | **charcoal** — structure | `--brand-*` / `--char-*` (`--char-800 #1b2126`) | top bar, headings, table heads, links |
+| **10%** | **light pink** — the one thing to act on | `--accent-*` / `--pink-*` (`--accent-500 #f7c0d4`) | primary button, active nav, focus ring, flagged rows |
 
-The accent is never decorative — if it is amber, it is clickable or it is the number you came for.
-Dark mode keeps the same split with inverted neutrals, so nothing needs re-styling per theme.
-Contrast is checked by the test suite: body text 15.3:1 (AAA), muted 12px labels 4.9:1 (AA),
-accent button label 7.8:1 (AAA).
+The accent is never decorative — if it is pink, it is clickable or it is the state you must notice.
+Errors keep a red semantic token; everything else stays inside the three colours. Dark mode keeps the
+same split at night (deep blue canvas, charcoal chrome, the same pink). Contrast is asserted by the
+test suite: body text 14.3:1 (AAA), muted 12px labels 4.8:1 (AA), the pink button label 11.2:1 (AAA),
+white chrome on charcoal 16.3:1 (AAA). The hue itself is asserted too — 60% must be blue, 30% must be
+low-saturation charcoal, 10% must be a light pink — so the palette cannot drift back to green.
 
 **Type — one scale, nothing below 12px.** `--fs-2xs 12 · --fs-xs 13 · --fs-sm 14 · --fs-md 16 ·
 --fs-lg 18 · --fs-xl 22 · --fs-2xl 28`, body at `16px / 1.6`, line length capped by `--measure`
@@ -424,7 +426,7 @@ npm test         # api · platform.api · platform.ui · viewer.ui · upload.ui
 | `platform.ui.test.mjs` | 25 | role picker, admin platform page, teacher/student views (jsdom) |
 | `viewer.ui.test.mjs` | 51 | the marked-work viewer: annotation glyphs, grade maths, question ⇄ mark spotlight |
 | `upload.ui.test.mjs` | 13 | upload resilience: inline reasons, retry, photo conversion, confirmation |
-| `design.ui.test.mjs` | 37 | the 60/30/10 palette, the type floor and scale, `COPY`, contrast, one action per screen |
+| `design.ui.test.mjs` | 41 | the blue/charcoal/pink 60/30/10 palette, type floor and scale, `COPY`, contrast, one action per screen |
 
 ---
 

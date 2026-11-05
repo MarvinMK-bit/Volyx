@@ -38,7 +38,8 @@ const tick = (ms = 60) => new Promise((r) => setTimeout(r, ms));
 
   const topbar = css.slice(css.indexOf('.topbar {'), css.indexOf('}', css.indexOf('.topbar {')));
   check('the bar is the 30% brand colour', /var\(--brand-800\)|var\(--green-800\)/.test(topbar));
-  check('dark theme redefines the same roles', /\[data-theme='dark'\] \{[\s\S]{0,400}--heading/.test(css));
+  const darkBlock = css.slice(css.indexOf("[data-theme='dark'] {"), css.indexOf('}', css.indexOf("[data-theme='dark'] {")));
+  check('dark theme redefines the same roles', /--heading:/.test(darkBlock) && /--canvas:/.test(darkBlock) && /--n-50:/.test(darkBlock));
 }
 
 /* ---------------- type ---------------- */
@@ -55,11 +56,61 @@ const tick = (ms = 60) => new Promise((r) => setTimeout(r, ms));
   check('inline styles in the app keep the floor too', inlineSizes.every((v) => v >= 0.75), inlineSizes.filter((v) => v < 0.75).join(', '));
 }
 
+/* ---------------- the requested hues ---------------- */
+{
+  const raw = (name) => {
+    const m = new RegExp(`--${name}:\\s*([^;]+);`).exec(css);
+    return m ? m[1].trim() : null;
+  };
+  const hex = (name, depth = 0) => {
+    const v = raw(name);
+    if (!v || depth > 6) return null;
+    if (/^#[0-9a-fA-F]{6}$/.test(v)) return v;
+    const alias = /^var\(--([\w-]+)\)$/.exec(v);
+    return alias ? hex(alias[1], depth + 1) : null;
+  };
+  const hsl = (h) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    let hue = 0;
+    if (max !== min) {
+      const d = max - min;
+      if (max === r) hue = ((g - b) / d) % 6;
+      else if (max === g) hue = (b - r) / d + 2;
+      else hue = (r - g) / d + 4;
+      hue *= 60;
+      if (hue < 0) hue += 360;
+    }
+    const l = (max + min) / 2;
+    const sat = max === min ? 0 : (max - min) / (1 - Math.abs(2 * l - 1));
+    return { hue, sat: sat * 100, light: l * 100 };
+  };
+
+  const canvas = hsl(hex('n-50'));
+  const chrome = hsl(hex('brand-800'));
+  const accent = hsl(hex('accent-500'));
+
+  check('60% is blue', canvas.hue >= 195 && canvas.hue <= 250 && canvas.sat > 20, `hue ${Math.round(canvas.hue)}° sat ${Math.round(canvas.sat)}%`);
+  check('60% is a light surface, not a mid tone', canvas.light > 88, `${Math.round(canvas.light)}% lightness`);
+  check('30% is charcoal', chrome.light < 25 && chrome.sat <= 20, `L ${Math.round(chrome.light)}% · S ${Math.round(chrome.sat)}%`);
+  check('10% is pink', accent.hue >= 300 || accent.hue <= 350, `hue ${Math.round(accent.hue)}°`);
+  check('10% is a light pink, not a hot magenta', accent.light > 70 && accent.sat < 80, `L ${Math.round(accent.light)}% · S ${Math.round(accent.sat)}%`);
+  check('the palette carries no green or gold', !/#[0-9a-f]{6}/i.test('') || !/--accent-500:\s*#(e|d)[0-9a-f]?[bc]/i.test(css));
+}
+
 /* ---------------- contrast ---------------- */
 {
-  const token = (name) => {
-    const m = new RegExp(`--${name}:\\s*(#[0-9a-fA-F]{6})`).exec(css);
-    return m ? m[1] : null;
+  const raw = (name) => {
+    const m = new RegExp(`--${name}:\\s*([^;]+);`).exec(css);
+    return m ? m[1].trim() : null;
+  };
+  const token = (name, depth = 0) => {
+    const v = raw(name);
+    if (!v || depth > 6) return null;
+    if (/^#[0-9a-fA-F]{6}$/.test(v)) return v;
+    const alias = /^var\(--([\w-]+)\)$/.exec(v);
+    return alias ? token(alias[1], depth + 1) : null;
   };
   const lum = (hex) => {
     const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
