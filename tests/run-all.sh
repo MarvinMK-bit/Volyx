@@ -20,7 +20,7 @@ for _ in $(seq 1 40); do
 done
 
 failed=0
-for suite in api.test.mjs platform.api.test.mjs platform.ui.test.mjs viewer.ui.test.mjs upload.ui.test.mjs; do
+for suite in api.test.mjs platform.api.test.mjs platform.ui.test.mjs viewer.ui.test.mjs upload.ui.test.mjs design.ui.test.mjs; do
   printf '%-24s ' "$suite"
   if ( cd "$here" && BASE=http://127.0.0.1:3100 node "$suite" 2>/dev/null | grep -q 'PASSED' ); then
     echo "ok"

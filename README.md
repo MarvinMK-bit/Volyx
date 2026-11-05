@@ -371,6 +371,41 @@ bad record or a network blip cannot take the process down mid-upload.
 
 ---
 
+## Design system
+
+The interface follows three rules, and `tests/design.ui.test.mjs` enforces them.
+
+**Colour — the 60 / 30 / 10 rule.** Every token lives in the `:root` block of
+`public/styles.css`:
+
+| Share | Role | Tokens |
+|---|---|---|
+| **60%** | neutrals: canvas, cards, body text | `--n-0 --n-25 --n-50 --n-100 --n-200`, `--ink --ink-2 --ink-3 --line` |
+| **30%** | brand green: top bar, headings, links, table structure | `--brand-900 … --brand-100` |
+| **10%** | amber accent: the one action that matters (primary button, active nav, focus ring, key figure) | `--accent-700 … --accent-100`, `--accent-on` |
+
+The accent is never decorative — if it is amber, it is clickable or it is the number you came for.
+Dark mode keeps the same split with inverted neutrals, so nothing needs re-styling per theme.
+Contrast is checked by the test suite: body text 15.3:1 (AAA), muted 12px labels 4.9:1 (AA),
+accent button label 7.8:1 (AAA).
+
+**Type — one scale, nothing below 12px.** `--fs-2xs 12 · --fs-xs 13 · --fs-sm 14 · --fs-md 16 ·
+--fs-lg 18 · --fs-xl 22 · --fs-2xl 28`, body at `16px / 1.6`, line length capped by `--measure`
+(68ch) so paragraphs stay readable. Cards and tables use the same steps, and the marked-work viewer
+uses `--fs-sm` for annotations metadata instead of the sub-12px labels it used to have.
+
+**Copy — every word comes from `COPY`.** A single object near the top of `public/app.js` describes
+each screen as `{ title, lead, primary, empty }`. Screens render `COPY.teacher.upload.title`, never a
+hard-coded sentence, so wording stays consistent and short as the app grows. Anything longer than a
+lead line lives behind a `<details class="disclose">` the user opens on purpose.
+
+**One purpose per screen.** Each screen is a single `h1`, one short lead, one visible primary action
+(amber), and at most a few supporting cards — upload keeps its explanation collapsed, settings keeps
+diagnostics collapsed, the console shows three stats instead of five, and the marked-work page leads
+with the student's pages.
+
+---
+
 ## Tests
 
 Five suites, 161 checks, no browser needed — they run against a throwaway copy of the app on
@@ -389,6 +424,7 @@ npm test         # api · platform.api · platform.ui · viewer.ui · upload.ui
 | `platform.ui.test.mjs` | 25 | role picker, admin platform page, teacher/student views (jsdom) |
 | `viewer.ui.test.mjs` | 51 | the marked-work viewer: annotation glyphs, grade maths, question ⇄ mark spotlight |
 | `upload.ui.test.mjs` | 13 | upload resilience: inline reasons, retry, photo conversion, confirmation |
+| `design.ui.test.mjs` | 37 | the 60/30/10 palette, the type floor and scale, `COPY`, contrast, one action per screen |
 
 ---
 

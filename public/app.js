@@ -44,6 +44,94 @@ window.addEventListener('unhandledrejection', (e) =>
   )
 );
 
+/* ============================================================
+   COPY
+   ------------------------------------------------------------
+   Every screen's words live here, not scattered through markup.
+   A screen is described as: one title (its main purpose), one lead
+   line, one primary action, and an empty state. Anything longer
+   belongs behind a disclosure the user can open.
+   ============================================================ */
+
+const COPY = {
+  auth: {
+    title: 'Sign in',
+    lead: 'Mark scripts, publish report cards, read them with your own email.',
+  },
+  teacher: {
+    overview: {
+      title: (first) => `Hello, ${first || 'there'}`,
+      lead: 'Your scripts, your students, your marks.',
+      primary: 'Upload a script',
+    },
+    students: {
+      title: 'Students',
+      lead: (n) =>
+        n
+          ? `${n} on this account. Each one has their own read-only login.`
+          : 'Nobody here yet. Add a student and give them a login.',
+      primary: 'Add student',
+      empty: {
+        title: 'No students yet',
+        body: 'Add someone, or grade a script straight away with just their email.',
+        cta: 'Add a student',
+      },
+    },
+    upload: {
+      title: 'Upload a script',
+      lead: 'One script per upload. The marks go straight to that student’s email.',
+      primary: 'Queue grading',
+      help: 'How this works',
+    },
+    marked: {
+      title: 'Marked work',
+      lead: (n) =>
+        n
+          ? `${n} marked script${n === 1 ? '' : 's'}. Open one to see the marker’s ticks on the page.`
+          : 'Nothing marked yet. Upload a script and it lands here.',
+      empty: {
+        title: 'Nothing marked yet',
+        body: 'Upload a script and it appears here with the marker’s marks on the page.',
+        cta: 'Upload a script',
+      },
+    },
+    results: {
+      title: 'Results',
+      lead: 'Publish a term when the class is ready to read it.',
+    },
+    settings: {
+      title: 'Settings',
+      lead: 'Your account, your data.',
+    },
+  },
+  admin: {
+    title: 'Platform',
+    lead: 'One GradeScriptUG key serves every teacher. Only this account can see it.',
+  },
+  student: {
+    home: {
+      title: 'My report cards',
+      lead: 'Marks from every teacher who has your email.',
+    },
+    marks: {
+      title: 'All my marks',
+      lead: (n) => (n ? `${n} script${n === 1 ? '' : 's'} marked. Read-only.` : 'Nothing marked yet.'),
+    },
+    account: {
+      title: 'Account',
+      lead: 'Your email, your password, your logins.',
+    },
+  },
+  marked: {
+    page: 'The marked work',
+    marks: (n) => `${n} mark${n === 1 ? '' : 's'} drawn`,
+    grade: 'How this was graded',
+    feedback: 'Marker’s feedback',
+    questions: 'How each question was marked',
+    highlight: 'Click a question to show its marks',
+  },
+};
+
 const gradeClass = (g) => `g-${String(g || 'F').charAt(0)}`;
 
 const fmtDate = (iso) => {
@@ -387,7 +475,7 @@ async function route() {
     mount(`
       <div class="card card-pad empty" style="max-width:520px;margin:3rem auto">
         <div class="big">⚠️</div>
-        <h2 style="font-size:1.05rem;margin-bottom:.35rem">That didn't load</h2>
+        <h2 style="font-size:1rem;margin-bottom:.35rem">That didn't load</h2>
         <p class="small muted">${esc(err.message)}</p>
         <a class="btn btn-primary btn-sm" href="#/">Try again</a>
       </div>`);
@@ -628,8 +716,8 @@ function authForm() {
         <input id="password" type="password" autocomplete="current-password" placeholder="Your password"
                value="${esc(a.fields?.password || '')}" required />
         <div class="hint" style="display:flex;justify-content:space-between">
-          <button type="button" class="linkish" data-mode="code" style="font-size:.78rem">Email me a code instead</button>
-          <button type="button" class="linkish" data-mode="forgot" style="font-size:.78rem">Forgot password?</button>
+          <button type="button" class="linkish" data-mode="code" style="font-size:.8125rem">Email me a code instead</button>
+          <button type="button" class="linkish" data-mode="forgot" style="font-size:.8125rem">Forgot password?</button>
         </div>
       </div>
       ${a.error ? `<div class="notice notice-danger">${esc(a.error)}</div>` : ''}
@@ -1053,8 +1141,8 @@ async function renderPortalHome() {
 
     <div class="page-head">
       <div>
-        <h1 style="font-size:1.15rem">My report cards</h1>
-        <p class="sub">Marks come from GradeScriptUG's marking of your scripts. Only you can see this page.</p>
+        <h1>${esc(COPY.student.home.title)}</h1>
+        <p class="sub">${esc(COPY.student.home.lead)}</p>
       </div>
       <div class="spacer"></div>
       <input class="search" id="term-search" placeholder="Filter terms…" aria-label="Filter terms" />
@@ -1117,7 +1205,7 @@ async function renderPortalMarks() {
     ${portalTabs('#/portal/marks')}
     <div class="page-head">
       <div>
-        <h1 style="font-size:1.15rem">Every mark on record</h1>
+        <h1>${esc(COPY.student.marks.title)}</h1>
         <p class="sub">${marks.length} script${marks.length === 1 ? '' : 's'} marked${me.teachers?.length ? ` by ${me.teachers.length} teacher${me.teachers.length === 1 ? '' : 's'}` : ''}. Read-only.</p>
       </div>
       <div class="spacer"></div>
@@ -1288,10 +1376,10 @@ async function renderMarkedList() {
   mount(`
     <div class="page-head">
       <div>
-        <h1 style="font-size:1.15rem">Marked work</h1>
-        <p class="sub">${ready.length} marked script${ready.length === 1 ? '' : 's'} · open any one to see the marker's ticks and crosses drawn on the student's own pages${
-          withPages ? '' : ' — pages are kept from new uploads onward'
-        }.</p>
+        <h1>${esc(COPY.teacher.marked.title)}</h1>
+        <p class="sub">${esc(COPY.teacher.marked.lead(ready.length))}${
+          withPages ? '' : ' Older scripts have no page copy.'
+        }</p>
       </div>
       <div class="spacer"></div>
       <input class="search" id="marked-search" placeholder="Search student, subject…" aria-label="Search marked work" />
@@ -1554,7 +1642,7 @@ function markedScriptHTML(detail, scope) {
 
   const gradeWorking = `
     <div class="card card-pad grade-card">
-      <h2>How this was graded</h2>
+      <h2>${esc(COPY.marked.grade)}</h2>
       <div class="grade-flow">
         <div class="gf-step"><span class="gf-n mono">${total}</span><span class="gf-l">marks given</span></div>
         <span class="gf-op">÷</span>
@@ -1656,8 +1744,8 @@ function markedScriptHTML(detail, scope) {
     <div class="marked-grid">
       <div class="marked-pages">
         <div class="marked-sec-head">
-          <h2>The marked work</h2>
-          <span class="muted small">${pages.length} page${pages.length === 1 ? '' : 's'} · ${totalAnns} mark${totalAnns === 1 ? '' : 's'} drawn</span>
+          <h2>${esc(COPY.marked.page)}</h2>
+          <span class="muted small">${pages.length} page${pages.length === 1 ? '' : 's'} · ${esc(COPY.marked.marks(totalAnns))}</span>
         </div>
         ${
           pages.length
@@ -1677,7 +1765,7 @@ function markedScriptHTML(detail, scope) {
         ${gradeWorking}
 
         <div class="card card-pad">
-          <h2 style="font-size:.95rem;margin-bottom:.6rem">Marker's feedback</h2>
+          <h2 style="font-size:1rem;margin-bottom:.6rem">${esc(COPY.marked.feedback)}</h2>
           <p class="small${detail.feedback ? '' : ' muted'}" style="margin:0">
             ${detail.feedback ? esc(detail.feedback) : 'No written feedback for this script.'}
           </p>
@@ -1685,7 +1773,7 @@ function markedScriptHTML(detail, scope) {
 
         ${flagged.length ? `
         <div class="card card-pad flagged-card">
-          <h2 style="font-size:.95rem;margin-bottom:.5rem">⚑ ${flagged.length} to review</h2>
+          <h2 style="font-size:1rem;margin-bottom:.5rem">⚑ ${flagged.length} to review</h2>
           <ul class="small" style="margin:0;padding-left:1.1rem">
             ${flagged.map((q) => `<li>Q${esc(q.ref)}${q.reviewReason ? ` — ${esc(q.reviewReason)}` : ''}</li>`).join('')}
           </ul>
@@ -1693,12 +1781,8 @@ function markedScriptHTML(detail, scope) {
 
         <div class="card">
           <div class="card-head">
-            <h2>How each question was marked</h2>
-            ${
-              anns.length
-                ? `<span class="small muted">click a question to highlight its marks</span>`
-                : ''
-            }
+            <h2>${esc(COPY.marked.questions)}</h2>
+            ${anns.length ? `<span class="small muted">${esc(COPY.marked.highlight)}</span>` : ''}
           </div>
           <div class="table-scroll">
             <table class="q-table">
@@ -1712,7 +1796,7 @@ function markedScriptHTML(detail, scope) {
 
     <style>
       .marked-head { display:flex; justify-content:space-between; gap:1rem; align-items:flex-start; flex-wrap:wrap; margin-bottom:1.2rem; }
-      .marked-title h1 { font-size:1.35rem; margin:.15rem 0 .2rem; }
+      .marked-title h1 { font-size:1.375rem; margin:.15rem 0 .2rem; }
       .marked-score { text-align:right; }
       .big-score { font-size:2rem; font-weight:700; line-height:1; color:var(--ink); }
       .big-score span { font-size:1rem; color:var(--ink-3); font-weight:500; }
@@ -1723,36 +1807,36 @@ function markedScriptHTML(detail, scope) {
       .marked-sec-head h2 { font-size:1rem; margin:0; }
       .marked-side { display:grid; gap:1rem; }
       .page-card { margin:0 0 1.1rem; }
-      .page-card figcaption { font-size:.78rem; font-weight:600; color:var(--ink-2); margin-bottom:.35rem; }
+      .page-card figcaption { font-size:.8125rem; font-weight:600; color:var(--ink-2); margin-bottom:.35rem; }
       .page-frame { position:relative; border:1px solid var(--line); border-radius:10px; overflow:hidden; background:#fff; }
       .page-frame img { display:block; width:100%; height:auto; }
       .marks-layer { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
       .page-pdf { border:1px dashed var(--line); border-radius:10px; padding:1.2rem; text-align:center; background:var(--canvas); }
       .page-legend { display:flex; gap:.4rem; flex-wrap:wrap; margin-top:.45rem; }
-      .amk { display:inline-block; font-size:.66rem; font-weight:700; padding:.1rem .35rem; border-radius:999px; letter-spacing:.02em; }
+      .amk { display:inline-block; font-size:.75rem; font-weight:700; padding:.1rem .35rem; border-radius:999px; letter-spacing:.02em; }
       .amk-tick { background:rgba(45,122,84,.13); color:var(--green-700); }
       .amk-cross { background:rgba(179,38,30,.12); color:var(--danger); }
       .amk-partial { background:rgba(196,138,32,.16); color:var(--warn); }
       .amk-mark, .amk-comment { background:rgba(20,86,140,.12); color:var(--info); }
       .amk-blank, .amk-crossed_out { background:rgba(127,127,127,.15); color:var(--ink-3); }
-      .annot-list { margin:.45rem 0 0; padding-left:1.1rem; font-size:.8rem; color:var(--ink-2); }
+      .annot-list { margin:.45rem 0 0; padding-left:1.1rem; font-size:.875rem; color:var(--ink-2); }
       .annot-list li { margin-bottom:.15rem; }
       .amk-q { font-weight:700; margin-right:.25rem; }
       .q-table tr.q-flagged { background:rgba(196,138,32,.07); }
       .flagged-card { border-color:rgba(196,138,32,.4); }
       .card-head { display:flex; align-items:baseline; justify-content:space-between; gap:.5rem; padding:1rem 1rem .4rem; flex-wrap:wrap; }
-      .grade-card h2, .marked-side h2 { font-size:.95rem; margin:0 0 .6rem; }
+      .grade-card h2, .marked-side h2 { font-size:1rem; margin:0 0 .6rem; }
       .grade-flow { display:flex; align-items:center; gap:.45rem; flex-wrap:wrap; margin-bottom:.7rem; }
       .gf-step { display:flex; flex-direction:column; align-items:center; gap:.15rem; padding:.35rem .5rem;
         background:var(--canvas); border-radius:10px; min-width:56px; }
-      .gf-n { font-size:1.05rem; font-weight:700; line-height:1; }
-      .gf-l { font-size:.62rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); font-weight:700; }
+      .gf-n { font-size:1rem; font-weight:700; line-height:1; }
+      .gf-l { font-size:.75rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); font-weight:700; }
       .gf-op { color:var(--ink-3); font-weight:700; }
       .grade-bar { height:8px; border-radius:999px; background:var(--line); overflow:hidden; }
       .grade-bar-fill { height:100%; border-radius:999px; background:linear-gradient(90deg,#1f7a4d,#3fa06a); }
-      .grade-notes { margin:.7rem 0 0; padding-left:1.05rem; font-size:.82rem; color:var(--ink-2); }
+      .grade-notes { margin:.7rem 0 0; padding-left:1.05rem; font-size:.875rem; color:var(--ink-2); }
       .grade-notes li { margin-bottom:.2rem; }
-      .grade-check { margin:.6rem 0 0; font-size:.75rem; color:var(--green-700); font-weight:600; }
+      .grade-check { margin:.6rem 0 0; font-size:.8125rem; color:var(--green-700); font-weight:600; }
       .grade-check.bad { color:var(--warn); }
       .q-row { cursor:pointer; }
       .q-row:hover td, .q-row:focus-visible td { background:var(--green-100); }
@@ -1769,7 +1853,7 @@ function markedScriptHTML(detail, scope) {
       .marks-layer.focus [data-qref].hit .mark-box { display:block; }
       .page-card.flash { animation: pageFlash 1.1s ease-out 1; }
       @keyframes pageFlash { from { box-shadow:0 0 0 3px rgba(31,122,77,.45); } to { box-shadow:0 0 0 0 rgba(31,122,77,0); } }
-      .q-flag { color:var(--warn); font-weight:700; font-size:.72rem; margin-left:.25rem; }
+      .q-flag { color:var(--warn); font-weight:700; font-size:.75rem; margin-left:.25rem; }
     </style>`;
 }
 
@@ -2034,18 +2118,18 @@ async function renderStudents() {
   mount(`
     <div class="page-head">
       <div>
-        <h1>My students</h1>
-        <p class="sub">Only you can see these. ${data.students.length} registered to your account — each one has their own read-only login.</p>
+        <h1>${esc(COPY.teacher.students.title)}</h1>
+        <p class="sub">${esc(COPY.teacher.students.lead(data.students.length))}</p>
       </div>
       <div class="spacer"></div>
-      <button class="btn btn-primary btn-sm" id="add-student">+ Add student</button>
+      <button class="btn btn-primary btn-sm" id="add-student">${esc(COPY.teacher.students.primary)}</button>
     </div>
     ${consoleTabs('#/teacher/students')}
 
     ${data.students.length === 0 ? `
       <div class="card empty">
         <div class="big">👩‍🎓</div>
-        <h2 style="font-size:1.05rem;margin-bottom:.35rem">0 students</h2>
+        <h2 style="font-size:1rem;margin-bottom:.35rem">0 students</h2>
         <p class="small muted" style="max-width:44ch;margin:0 auto 1.1rem">
           Add the students you teach. Their scripts, marks and report cards stay private to your account —
           other accounts can't see or change them.
@@ -2369,12 +2453,12 @@ async function renderTeacherOverview() {
   mount(`
     <div class="page-head">
       <div>
-        <h1>Hello, ${esc((data.user?.name || state.user.name || '').split(' ')[0] || 'there')}</h1>
-        <p class="sub">Everything here belongs to ${esc(state.user.email)}.</p>
+        <h1>${esc(COPY.teacher.overview.title((data.user?.name || state.user.name || '').split(' ')[0]))}</h1>
+        <p class="sub">${esc(COPY.teacher.overview.lead)}</p>
       </div>
       <div class="spacer"></div>
-      <button class="btn btn-ghost btn-sm" id="sync">↻ Refresh</button>
-      <a class="btn btn-primary btn-sm" href="#/teacher/students">+ Add student</a>
+      <button class="btn btn-ghost btn-sm" id="sync">Refresh</button>
+      <a class="btn btn-primary btn-sm" href="#/teacher/upload">${esc(COPY.teacher.overview.primary)}</a>
     </div>
     ${consoleTabs('#/teacher')}
     ${keyBox}
@@ -2382,10 +2466,9 @@ async function renderTeacherOverview() {
 
     <div class="stat-grid">
       <div class="card stat-card"><div class="k">Students</div><div class="v">${c.students}</div><div class="s">on your account</div></div>
-      <div class="card stat-card"><div class="k">Queued</div><div class="v">${c.pending}</div><div class="s">waiting to be graded</div></div>
-      <div class="card stat-card"><div class="k">Grading</div><div class="v">${c.processing}</div><div class="s">in progress</div></div>
+      <div class="card stat-card"><div class="k">In the marker</div><div class="v">${c.pending + c.processing}</div><div class="s">queued or running</div></div>
       <div class="card stat-card"><div class="k">Graded</div><div class="v">${c.completed}</div><div class="s">${c.partial} partly graded</div></div>
-      <div class="card stat-card"><div class="k">Failed</div><div class="v">${c.failed}</div><div class="s">need a retry</div></div>
+      ${c.failed ? `<div class="card stat-card is-alert"><div class="k">Failed</div><div class="v">${c.failed}</div><div class="s">need a retry</div></div>` : ''}
     </div>
 
     <div class="card">
@@ -2493,8 +2576,8 @@ async function renderTeacherUpload() {
   mount(`
     <div class="page-head">
       <div>
-        <h1>Upload a script</h1>
-        <p class="sub">Attach the student's email and GradeScriptUG marks the pages in the background. The marks appear in that student's own account.</p>
+        <h1>${esc(COPY.teacher.upload.title)}</h1>
+        <p class="sub">${esc(COPY.teacher.upload.lead)}</p>
       </div>
     </div>
     ${consoleTabs('#/teacher/upload')}
@@ -2557,19 +2640,19 @@ async function renderTeacherUpload() {
         </div>
         <div id="upload-error" class="notice notice-danger small" hidden></div>
         <div id="upload-ok" class="notice small" hidden></div>
-        <button class="btn btn-primary btn-block" type="submit" id="submit-btn">Queue grading</button>
+        <button class="btn btn-primary btn-block" type="submit" id="submit-btn">${esc(COPY.teacher.upload.primary)}</button>
       </form>
 
       <div>
-        <div class="card card-pad" style="margin-bottom:1rem">
-          <h3 style="font-size:.95rem;margin-bottom:.6rem">How this works</h3>
+        <details class="card card-pad disclose" style="margin-bottom:1rem">
+          <summary>${esc(COPY.teacher.upload.help)}</summary>
           <ol class="steps">
             <li>Your files go to <span class="mono">POST /grading</span> using the platform key — you never handle the key.</li>
             <li>GradeScriptUG returns <span class="mono">202 Accepted</span> and a grading id.</li>
             <li>The portal polls <span class="mono">GET /grading/{id}</span> until it is graded.</li>
             <li>The marks are filed under the student's email, so they show up in that email's account.</li>
           </ol>
-        </div>
+        </details>
         <div class="notice notice-info small">
           <strong>Tip:</strong> send the marking guide whenever you have one. Without it the marker has to decide
           for itself what a correct answer is worth.
@@ -2774,8 +2857,8 @@ async function renderAdminPlatform() {
   mount(`
     <div class="page-head">
       <div>
-        <h1>Platform</h1>
-        <p class="sub">One GradeScriptUG key, every teacher's uploads. Only this account can see or change it.</p>
+        <h1>${esc(COPY.admin.title)}</h1>
+        <p class="sub">${esc(COPY.admin.lead)}</p>
       </div>
       <div class="spacer"></div>
       <a class="btn btn-ghost btn-sm" href="#/teacher">Go to my console →</a>
@@ -2791,14 +2874,14 @@ async function renderAdminPlatform() {
     <div class="grid grid-2" style="align-items:start">
       <div class="card card-pad">
         <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem">
-          <h3 style="font-size:.98rem;margin:0">GradeScriptUG platform key</h3>
+          <h3 style="font-size:1rem;margin:0">GradeScriptUG platform key</h3>
           ${keyState}
         </div>
 
         <div class="keybox" style="margin-bottom:1rem">
           <span class="status-dot ${k.status === 'ok' ? 'dot-ok' : k.status === 'invalid' ? 'dot-warn' : 'dot-off'}"></span>
           <div style="flex:1">
-            <div style="font-weight:600;font-size:.88rem">
+            <div style="font-weight:600;font-size:.9375rem">
               ${k.connected ? `Active · <span class="mono">${esc(k.hint || 'from environment')}</span>` : 'No key connected'}
             </div>
             <div class="muted small">
@@ -2828,7 +2911,7 @@ async function renderAdminPlatform() {
 
       <div>
         <div class="card card-pad" style="margin-bottom:1rem">
-          <h3 style="font-size:.98rem;margin-bottom:.6rem">How grading flows</h3>
+          <h3 style="font-size:1rem;margin-bottom:.6rem">How grading flows</h3>
           <ol class="steps">
             <li>A teacher uploads a script with the <strong>student's email</strong>.</li>
             <li>Volyx posts it to GradeScriptUG using <strong>your key</strong>.</li>
@@ -2838,7 +2921,7 @@ async function renderAdminPlatform() {
         </div>
 
         <div class="card card-pad">
-          <h3 style="font-size:.98rem;margin-bottom:.6rem">Platform</h3>
+          <h3 style="font-size:1rem;margin-bottom:.6rem">Platform</h3>
           <div class="kv"><span>Administrator</span><strong>${esc(data.admin.email)}</strong></div>
           <div class="kv"><span>Accounts</span><strong>${c.accounts}</strong></div>
           <div class="kv"><span>Students tracked by teachers</span><strong>${c.studentsTracked}</strong></div>
@@ -2914,8 +2997,8 @@ async function renderTeacherResults() {
   mount(`
     <div class="page-head">
       <div>
-        <h1>Results &amp; publishing</h1>
-        <p class="sub">Students only see a term once you publish it for their class.</p>
+        <h1>${esc(COPY.teacher.results.title)}</h1>
+        <p class="sub">${esc(COPY.teacher.results.lead)}</p>
       </div>
     </div>
     ${consoleTabs('#/teacher/results')}
@@ -3011,16 +3094,16 @@ async function renderTeacherSettings() {
   const isAdmin = state.user?.role === 'admin';
 
   mount(`
-    <div class="page-head"><div><h1>Settings</h1><p class="sub">Your account, the marking API, and your data.</p></div></div>
+    <div class="page-head"><div><h1>${esc(COPY.teacher.settings.title)}</h1><p class="sub">${esc(COPY.teacher.settings.lead)}</p></div></div>
     ${consoleTabs('#/teacher/settings')}
 
     <div class="grid grid-2" style="align-items:start">
       <div>
         <div class="card card-pad" style="margin-bottom:1rem">
-          <h3 style="font-size:.98rem;margin-bottom:.7rem">Account</h3>
+          <h3 style="font-size:1rem;margin-bottom:.7rem">Account</h3>
           <div class="keybox">
             <div style="flex:1">
-              <div style="font-weight:600;font-size:.88rem">${esc(state.user.name || 'Account')}</div>
+              <div style="font-weight:600;font-size:.9375rem">${esc(state.user.name || 'Account')}</div>
               <div class="muted small">${esc(state.user.email)} · verified ${state.user.emailVerified ? '✓' : '—'}</div>
             </div>
           </div>
@@ -3031,11 +3114,11 @@ async function renderTeacherSettings() {
         </div>
 
         <div class="card card-pad">
-          <h3 style="font-size:.98rem;margin-bottom:.7rem">GradeScriptUG connection</h3>
+          <h3 style="font-size:1rem;margin-bottom:.7rem">GradeScriptUG connection</h3>
           <div class="keybox" style="margin-bottom:${isAdmin ? '1rem' : '0'}">
             <span class="status-dot ${k.status === 'ok' ? 'dot-ok' : k.status === 'invalid' ? 'dot-warn' : 'dot-off'}"></span>
             <div style="flex:1">
-              <div style="font-weight:600;font-size:.88rem">
+              <div style="font-weight:600;font-size:.9375rem">
                 ${k.status === 'ok' ? `Connected · <span class="mono">${esc(k.hint)}</span>` : k.status === 'invalid' ? 'Key rejected by GradeScriptUG' : 'Demo mode — no platform key connected'}
               </div>
               <div class="muted small">${esc(k.message || (isAdmin ? 'Uploads are simulated until you connect a key.' : 'Uploads are simulated until the administrator connects a key.'))}</div>
@@ -3063,7 +3146,7 @@ async function renderTeacherSettings() {
 
       <div>
         <div class="card card-pad" style="margin-bottom:1rem">
-          <h3 style="font-size:.98rem;margin-bottom:.6rem">Sign-in · Google</h3>
+          <h3 style="font-size:1rem;margin-bottom:.6rem">Sign-in · Google</h3>
           <p class="small muted" style="margin-bottom:.6rem">
             Optional. Add a Google OAuth Client ID to let people sign in with Google instead of a password.
           </p>
@@ -3079,7 +3162,7 @@ async function renderTeacherSettings() {
         </div>
 
         <div class="card card-pad" style="margin-bottom:1rem">
-          <h3 style="font-size:.98rem;margin-bottom:.6rem">Your data</h3>
+          <h3 style="font-size:1rem;margin-bottom:.6rem">Your data</h3>
           <p class="small muted" style="margin-bottom:.7rem">
             Delete every script marked for your students and unpublish your terms. Other accounts are untouched.
           </p>
@@ -3089,20 +3172,17 @@ async function renderTeacherSettings() {
           </div>
         </div>
 
-        <div class="card card-pad" style="margin-bottom:1rem">
-          <div style="display:flex;justify-content:space-between;gap:.5rem;align-items:baseline;flex-wrap:wrap">
-            <h3 style="font-size:.98rem;margin:0">Activity &amp; diagnostics</h3>
-            <button class="btn btn-ghost btn-sm" id="diag-refresh">Refresh</button>
-          </div>
+        <details class="card card-pad disclose" style="margin-bottom:1rem">
+          <summary>Activity &amp; diagnostics</summary>
           <p class="small muted" style="margin:.5rem 0 .6rem">
-            The last things the server did — uploads it accepted, uploads it refused and why, and any
-            error the browser reported. Copy this when something fails.
+            Recent uploads, refusals and browser errors. Copy this when something fails.
           </p>
           <pre id="diag-log" class="diag-log">Loading…</pre>
-        </div>
+          <button class="btn btn-ghost btn-sm" id="diag-refresh" style="margin-top:.5rem">Refresh</button>
+        </details>
 
         <div class="card card-pad">
-          <h3 style="font-size:.98rem;margin-bottom:.6rem">Mail</h3>
+          <h3 style="font-size:1rem;margin-bottom:.6rem">Mail</h3>
           <p class="small muted" style="margin:0">
             Verification codes are sent by <span class="mono">${esc(state.config.mailMode)}</span>${
               state.config.mailMode === 'dev' ? ' — in development the code is shown on screen and printed in the server log. Set RESEND_API_KEY to deliver real email.' : '.'
