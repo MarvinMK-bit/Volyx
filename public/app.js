@@ -199,9 +199,24 @@ const toggleTheme = () => applyTheme(currentTheme() === 'dark' ? 'light' : 'dark
 function mount(html) {
   view.classList.remove('page-in');
   view.innerHTML = html;
+  decorateNotices();
   void view.offsetWidth;
   view.classList.add('page-in');
   window.scrollTo({ top: 0 });
+}
+
+/* every banner on a screen can be dismissed, like the reference dashboard */
+function decorateNotices() {
+  view.querySelectorAll('.notice').forEach((n) => {
+    if (n.querySelector('.notice-x')) return;
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'notice-x';
+    b.setAttribute('aria-label', 'Dismiss');
+    b.textContent = '×';
+    b.addEventListener('click', () => n.remove());
+    n.appendChild(b);
+  });
 }
 
 const loadingBlock = (label = 'Loading…') =>
@@ -318,6 +333,33 @@ async function api(path, { method = 'GET', body } = {}) {
    CHROME
    ============================================================ */
 
+/* Line icons for the nav rail — one family, 17px, currentColor. */
+const NAV_ICON_PATHS = {
+  dashboard: '<path d="M4 11.5 12 4l8 7.5"/><path d="M6.5 10.5V20h11v-9.5"/><path d="M10 20v-5h4v5"/>',
+  results: '<path d="M4 19V5"/><path d="M4 19h16"/><rect x="7" y="11" width="3" height="5" rx="1"/><rect x="12" y="8" width="3" height="8" rx="1"/><rect x="17" y="12.5" width="3" height="3.5" rx="1"/>',
+  marks: '<path d="M6 3.5h9l4 4V20H6z"/><path d="M14.5 3.5V8H19"/><path d="M9 12.5h6M9 16h4"/>',
+  account: '<circle cx="12" cy="8.5" r="3.4"/><path d="M5.5 20c.8-3.4 3.4-5.2 6.5-5.2s5.7 1.8 6.5 5.2"/>',
+  students: '<circle cx="9" cy="9" r="3.2"/><path d="M3.5 19c.6-3 2.8-4.6 5.5-4.6S14 16 14.6 19"/><path d="M16 6.6a3 3 0 0 1 0 5.6"/><path d="M17.6 14.6c2 .5 3.2 2.1 3.5 4.4"/>',
+  upload: '<path d="M12 16.5V5"/><path d="M8 9l4-4 4 4"/><path d="M4.5 15.5V18a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-2.5"/>',
+  marked: '<path d="M4 12.5 9 17.5 20 6.5"/>',
+  platform: '<path d="M12 3.5 19 6v6c0 4-3 6.9-7 8.5C8 18.9 5 16 5 12V6z"/><path d="M9.5 12.2l1.8 1.8 3.4-3.6"/>',
+  settings: '<circle cx="12" cy="12" r="2.9"/><path d="M12 3.6v2.1M12 18.3v2.1M4.9 7.6l1.8 1.1M17.3 15.3l1.8 1.1M4.9 16.4l1.8-1.1M17.3 8.7l1.8-1.1"/>',
+};
+function navIcon(label) {
+  const key =
+    label === 'Platform' ? 'platform'
+    : label === 'Students' ? 'students'
+    : label === 'Upload' ? 'upload'
+    : label === 'Marked work' ? 'marked'
+    : label === 'Settings' ? 'settings'
+    : label === 'Results' ? 'results'
+    : label === 'My results' ? 'dashboard'
+    : label === 'My marks' ? 'marks'
+    : label === 'Account' ? 'account'
+    : 'dashboard';
+  return `<svg viewBox="0 0 24 24" aria-hidden="true">${NAV_ICON_PATHS[key]}</svg>`;
+}
+
 function navLinks() {
   const path = (location.hash || '#/').split('?')[0];
   const student = state.user?.role === 'student';
@@ -340,7 +382,7 @@ function navLinks() {
   return items
     .map(([href, label]) => {
       const active = path === href || (href !== '#/teacher' && path.startsWith(href));
-      return `<a href="${href}" class="${active ? 'active' : ''}">${esc(label)}</a>`;
+      return `<a href="${href}" class="${active ? 'active' : ''}">${navIcon(label)}<span>${esc(label)}</span></a>`;
     })
     .join('');
 }
@@ -366,9 +408,19 @@ function renderTopbar() {
           <span class="brand-sub">${esc(c.school.shortName || c.school.name)}</span>
         </span>
       </a>
+      <div class="topbar-search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+        <input id="global-search" type="search" placeholder="Search students, subjects, results…" aria-label="Search" autocomplete="off" />
+        <kbd>/</kbd>
+      </div>
       <nav class="nav">${navLinks()}</nav>
       <div class="userchip">
+        <button class="btn-icon" id="bell-btn" title="Notifications" aria-label="Notifications">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 15.5V11a6 6 0 1 0-12 0v4.5L4.5 18h15z"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0"/></svg>
+          <span class="dot-badge" aria-hidden="true"></span>
+        </button>
         <button class="btn-icon theme-btn" id="theme-btn" title="Toggle theme" aria-label="Toggle dark mode">${currentTheme() === 'dark' ? '☀' : '☾'}</button>
+        <span class="divider-v" aria-hidden="true"></span>
         <div class="avatar">${esc(initials(u.name || u.email))}</div>
         <span class="who">
           ${esc((u.name || u.email).split(' ')[0])}
@@ -389,6 +441,45 @@ function renderTopbar() {
     </div>`;
 
   document.getElementById('theme-btn').addEventListener('click', toggleTheme);
+
+  // Global search mirrors into the current screen's own filter box,
+  // so it never invents results the screen cannot show.
+  const globalSearch = document.getElementById('global-search');
+  if (globalSearch) {
+    globalSearch.addEventListener('input', () => {
+      const local = view.querySelector('input.search');
+      if (!local) return;
+      local.value = globalSearch.value;
+      local.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    globalSearch.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      const local = view.querySelector('input.search');
+      if (local) { local.focus(); return; }
+      if (u.role !== 'student') { location.hash = '#/teacher/students'; }
+    });
+  }
+  document.addEventListener('keydown', (e) => {
+    const t = e.target;
+    const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT');
+    if (e.key === '/' && !typing && globalSearch && globalSearch.offsetParent !== null) {
+      e.preventDefault();
+      globalSearch.focus();
+    }
+  });
+
+  const bell = document.getElementById('bell-btn');
+  if (bell) {
+    bell.addEventListener('click', () => {
+      const counts = state.overview?.counts || {};
+      const waiting = (counts.pending || 0) + (counts.processing || 0);
+      toast(
+        waiting
+          ? `${waiting} script${waiting === 1 ? '' : 's'} still being marked.`
+          : 'Nothing new. Marks appear here as GradeScriptUG finishes each script.'
+      );
+    });
+  }
   document.getElementById('logout').addEventListener('click', async () => {
     await api('/api/auth/logout', { method: 'POST' }).catch(() => {});
     state.user = null;
@@ -1081,18 +1172,22 @@ async function renderPortalHome() {
 
   const termCards = termData.terms.length
     ? termData.terms
-        .map((t) => {
+        .map((t, i) => {
           const grade = gradeLetter(t.average, c.scale);
           return `
         <a class="card term-card" href="#/portal/report/${encodeURIComponent(t.id)}">
-          <div class="term-main">
-            <div class="term-name">${esc(t.name)} ${esc(t.year)}</div>
-            <div class="meta">${t.subjects} subjects · ${t.assessments} scripts graded · term ends ${esc(fmtDate(t.ends))}</div>
-          </div>
-          <div class="avg">
-            <div class="num">${t.average}<small>%</small></div>
-            <span class="grade-pill ${gradeClass(grade)}">${esc(grade)}</span>
-            <span class="go">Open report <span class="arrow">→</span></span>
+          <div class="term-cover alt-${i % 3}">${esc(t.name)} ${esc(t.year)}</div>
+          <div class="term-body">
+            <div class="term-main">
+              <div class="term-name">${esc(t.name)} ${esc(t.year)}</div>
+              <div class="meta">${t.subjects} subjects · ${t.assessments} scripts graded</div>
+            </div>
+            <div class="progress" role="img" aria-label="Average ${t.average}%"><i style="width:${Math.max(2, Math.min(100, Number(t.average) || 0))}%"></i></div>
+            <div class="avg">
+              <div class="num">${t.average}<small>%</small></div>
+              <span class="grade-pill ${gradeClass(grade)}">${esc(grade)}</span>
+              <span class="go">Open report <span class="arrow">→</span></span>
+            </div>
           </div>
         </a>`;
         })
@@ -1546,8 +1641,8 @@ function drawMarks(svg, annotations, pageWidth, pageHeight) {
         cx: fx,
         cy: y + glyph * 0.35,
         r: glyph * 0.36,
-        fill: '#ecfeff',
-        stroke: '#0e7490',
+        fill: '#eef2ff',
+        stroke: '#4338ca',
         'stroke-width': Math.max(1, pageWidth * 0.002),
       });
       addIn(
@@ -1555,7 +1650,7 @@ function drawMarks(svg, annotations, pageWidth, pageHeight) {
         {
           x: fx,
           y: y + glyph * 0.35 + textSize * 0.38,
-          fill: '#0e7490',
+          fill: '#4338ca',
           'font-size': textSize * 0.95,
           'text-anchor': 'middle',
           'font-weight': 700,

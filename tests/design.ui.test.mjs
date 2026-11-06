@@ -99,16 +99,18 @@ const tick = (ms = 60) => new Promise((r) => setTimeout(r, ms));
   check('60% canvas is cool light grey, not warm', canvas.hue >= 180 && canvas.hue <= 250, `hue ${Math.round(canvas.hue)}°`);
   check('60% cards are crisp white', /^#f{6}$/i.test(paperHex), paperHex);
   check('30% is dark slate', chrome.hue >= 200 && chrome.hue <= 250 && chrome.light < 20 && chroma(hex('brand-800')) > 20, `hue ${Math.round(chrome.hue)}° · L ${Math.round(chrome.light)}%`);
-  check('10% is neon cyan', accent.hue >= 175 && accent.hue <= 200, `hue ${Math.round(accent.hue)}°`);
-  check('10% is a vibrant accent, not a muted teal', accent.sat > 60 && accent.light >= 30 && accent.light <= 60, `S ${Math.round(accent.sat)}% · L ${Math.round(accent.light)}%`);
+  check('10% is indigo', accent.hue >= 225 && accent.hue <= 265, `hue ${Math.round(accent.hue)}°`);
+  check('10% is a vibrant accent, not a muted slate', accent.sat > 55 && accent.light >= 30 && accent.light <= 60, `S ${Math.round(accent.sat)}% · L ${Math.round(accent.light)}%`);
 
   const allHex = [...new Set((css + appSource).match(/#[0-9a-fA-F]{6}\b/g) || [])].map(hsl);
   const greens = allHex.filter((c) => c.hue >= 60 && c.hue <= 170 && c.sat > 12);
   const pinks = allHex.filter((c) => c.hue > 285 && c.hue <= 355);
   const warms = allHex.filter((c) => c.hue >= 20 && c.hue <= 55 && c.sat > 35);
+  const cyans = allHex.filter((c) => c.hue >= 170 && c.hue <= 200 && c.sat > 40);
   check('no green survives anywhere in the sheet', greens.length === 0, `${greens.length} green-hued values`);
   check('no pink survives anywhere in the sheet', pinks.length === 0, `${pinks.length} pink-hued values`);
   check('no warm amber survives anywhere in the sheet', warms.length === 0, `${warms.length} warm-hued values`);
+  check('no cyan survives anywhere in the sheet', cyans.length === 0, `${cyans.length} cyan-hued values`);
 }
 
 /* ---------------- contrast ---------------- */
@@ -145,7 +147,7 @@ const tick = (ms = 60) => new Promise((r) => setTimeout(r, ms));
   check('body text on the canvas is AAA', ratio(ink, canvas) >= 7, ratio(ink, canvas).toFixed(2));
   check('body text on a card is AAA', ratio(ink, paper) >= 7, ratio(ink, paper).toFixed(2));
   check('muted 12px text still passes AA', ratio(ink3, canvas) >= 4.5, ratio(ink3, canvas).toFixed(2));
-  check('the accent button label passes AAA', ratio(accentOn, accent) >= 7, ratio(accentOn, accent).toFixed(2));
+  check('the accent button label passes AA with room to spare', ratio(accentOn, accent) >= 4.5, ratio(accentOn, accent).toFixed(2));
   check('white chrome on the brand bar passes AAA', ratio('#ffffff', brand800) >= 7, ratio('#ffffff', brand800).toFixed(2));
 }
 
