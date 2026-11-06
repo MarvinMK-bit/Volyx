@@ -353,11 +353,29 @@ function navIcon(label) {
     : label === 'Marked work' ? 'marked'
     : label === 'Settings' ? 'settings'
     : label === 'Results' ? 'results'
-    : label === 'My results' ? 'dashboard'
-    : label === 'My marks' ? 'marks'
+    : label === 'Dashboard' ? 'dashboard'
+    : label === 'My grades' ? 'marks'
     : label === 'Account' ? 'account'
     : 'dashboard';
   return `<svg viewBox="0 0 24 24" aria-hidden="true">${NAV_ICON_PATHS[key]}</svg>`;
+}
+
+/* The Volyx mark: two pages of an open book meeting in a V. */
+function logoMark(size = 36) {
+  return `<svg class="logo-mark" width="${size}" height="${size}" viewBox="0 0 40 40" role="img" aria-label="Volyx">
+    <defs>
+      <linearGradient id="vxPageA" x1="0" y1="0" x2="0.75" y2="1">
+        <stop offset="0" stop-color="#7c7cf5"/><stop offset="0.5" stop-color="#4f46e5"/><stop offset="1" stop-color="#312e81"/>
+      </linearGradient>
+      <linearGradient id="vxPageB" x1="1" y1="0" x2="0.2" y2="1">
+        <stop offset="0" stop-color="#312e81"/><stop offset="0.55" stop-color="#1e1b4b"/><stop offset="1" stop-color="#0f172a"/>
+      </linearGradient>
+    </defs>
+    <path d="M4.6 3.4 13.4 3.4 20.2 36.4Z" fill="url(#vxPageA)"/>
+    <path d="M35.4 3.4 26.6 3.4 19.8 36.4Z" fill="url(#vxPageB)"/>
+    <path d="M8.4 6.6 10.1 6.6 15.2 27.4 13.8 27.4Z" fill="#fff" opacity="0.55"/>
+    <path d="M31.6 6.6 29.9 6.6 24.8 27.4 26.2 27.4Z" fill="#fff" opacity="0.28"/>
+  </svg>`;
 }
 
 function navLinks() {
@@ -365,8 +383,8 @@ function navLinks() {
   const student = state.user?.role === 'student';
   const items = student
     ? [
-        ['#/portal', 'My results'],
-        ['#/portal/marks', 'My marks'],
+        ['#/portal', 'Dashboard'],
+        ['#/portal/marks', 'My grades'],
         ['#/portal/account', 'Account'],
       ]
     : [
@@ -402,7 +420,7 @@ function renderTopbar() {
     <div class="topbar-inner">
       <button class="menu-btn" id="menu-btn" aria-label="Menu">☰</button>
       <a class="brand" href="${u.role === 'student' ? '#/portal' : '#/teacher'}">
-        <span class="brand-mark">V</span>
+        ${logoMark(34)}
         <span class="brand-text">
           <span class="brand-name">${esc(c.platform.name)}</span>
           <span class="brand-sub">${esc(c.school.shortName || c.school.name)}</span>
@@ -854,7 +872,7 @@ function renderAuth() {
   mount(`
     <div class="login-wrap">
       <section class="login-hero">
-        <div class="hero-mark">V</div>
+        <div class="hero-mark">${logoMark(64)}</div>
         <div class="eyebrow">${esc(c.platform.tagline)}</div>
         <h1>Your marks,<br/>turned into a report card.</h1>
         <p>${esc(c.platform.description)}</p>
@@ -866,7 +884,7 @@ function renderAuth() {
       </section>
       <section class="card login-card">
         <div class="login-brand">
-          <span class="brand-mark">V</span>
+          ${logoMark(40)}
           <div>
             <div class="brand-name">${esc(c.platform.name)}</div>
             <div class="brand-sub">${esc(c.school.name)}</div>
@@ -1216,59 +1234,192 @@ async function renderPortalHome() {
         .join('')
     : `<tr><td colspan="6" class="muted small" style="padding:1.4rem;text-align:center">No marks yet.</td></tr>`;
 
+  // ---- group marked scripts into per-subject courses
+  const bySubject = new Map();
+  marks.forEach((m) => {
+    const key = m.subject || 'Other';
+    const row = bySubject.get(key) || { subject: key, sum: 0, n: 0, teacher: '' };
+    row.sum += Number(m.percent) || 0;
+    row.n += 1;
+    if (m.teacher) row.teacher = m.teacher;
+    bySubject.set(key, row);
+  });
+  const courses = [...bySubject.values()]
+    .map((r) => ({ ...r, avg: Math.round(r.sum / r.n) }))
+    .sort((a, b) => b.avg - a.avg);
+
+  const courseTiles = courses.length
+    ? courses
+        .slice(0, 6)
+        .map(
+          (row, i) => `
+      <a class="course-tile" href="#/portal/marks">
+        <div class="course-cover${i % 2 ? ' alt' : ''}">
+          <span class="course-icon">${esc(String(row.subject).trim().charAt(0).toUpperCase())}</span>
+          <span>${esc(row.subject)}</span>
+        </div>
+        <div class="course-body">
+          <div class="course-meta"><span>${row.n} script${row.n === 1 ? '' : 's'}</span><span>${row.avg}%</span></div>
+          <div class="progress"><i style="width:${Math.max(3, Math.min(100, row.avg))}%"></i></div>
+          <div class="course-foot">
+            <span class="avatar avatar-xs">${esc(initials(row.teacher || 'Marked'))}</span>
+            <span>${esc(row.teacher || 'Marked')}</span>
+          </div>
+        </div>
+      </a>`
+        )
+        .join('')
+    : `<div class="dash-empty">Your courses appear here as soon as a teacher marks a script with your email on it.</div>`;
+
+  // ---- the term journey: oldest to newest, newest is where the student stands now
+  const journeyTerms = termData.terms.slice(0, 3).reverse();
+  const studentName = String(me.student.name || 'Student');
+  const shortName = `${studentName.split(' ')[0]} ${(studentName.split(' ')[1] || '').charAt(0)}.`.trim();
+  const journey = journeyTerms.length
+    ? journeyTerms
+        .map((t, i) => {
+          const current = i === journeyTerms.length - 1;
+          return `
+        <div class="hex-step ${current ? 'current' : 'done'}">
+          ${current ? `<div class="hex-chip"><span class="avatar">${esc(initials(studentName))}</span><span>${esc(shortName)}</span></div>` : ''}
+          <div class="hex">
+            <div class="hex-inner">
+              <div class="hex-school">${esc(c.school.shortName || 'SBSS')}</div>
+              <div class="hex-state">${esc(t.name)}</div>
+              <div class="hex-year">${esc(String(t.year))}</div>
+              <div class="hex-ribbon"></div>
+            </div>
+          </div>
+          <div class="hex-caption">${t.average}% average</div>
+        </div>`;
+        })
+        .join('<div class="journey-arrow" aria-hidden="true">→</div>')
+    : `<div class="dash-empty">Your journey starts when the first report card is published.</div>`;
+
+  // ---- milestones: the most recent marked scripts, plus what comes next
+  const milestoneRows = marks
+    .slice(0, 3)
+    .map(
+      (m) => `
+      <li class="ms-item done">
+        <span class="ms-dot" aria-hidden="true">✓</span>
+        <div>
+          <div class="ms-title">${esc(m.subject)} — ${esc(m.assessmentType)}</div>
+          <div class="ms-sub">${m.percent}% · ${esc(m.termName || '')}</div>
+        </div>
+      </li>`
+    )
+    .join('');
+
+  const milestoneList = `${milestoneRows}
+    <li class="ms-item next">
+      <span class="ms-dot" aria-hidden="true">•</span>
+      <div>
+        <div class="ms-title">Next script</div>
+        <div class="ms-sub">${marks.length ? 'Ask your teacher when the next assessment is due.' : 'Nothing marked yet — the first one will show up here.'}</div>
+      </div>
+    </li>`;
+
+  // ---- notices the school already knows about
+  const currentTerm = (c.reporting?.terms || []).find((t) => t.id === c.reporting?.currentTerm) || (c.reporting?.terms || [])[0];
+  const notices = [];
+  if (currentTerm) notices.push({ title: `${currentTerm.name} ends ${fmtDate(currentTerm.ends)}`, sub: 'Report cards are published term by term.' });
+  if (latest) notices.push({ title: `${latest.name} report card is ready`, sub: `${latest.subjects} subjects · ${latest.assessments} scripts marked.` });
+  if ((me.teachers || []).length)
+    notices.push({
+      title: `Marked by ${me.teachers.length === 1 ? me.teachers[0].name : `${me.teachers.length} teachers`}`,
+      sub: 'Any teacher who has your email can mark your work.',
+    });
+
+  const noticeRows = notices
+    .map(
+      (n) => `
+      <li class="ann-item">
+        <div class="ms-title">${esc(n.title)}</div>
+        <div class="ms-sub">${esc(n.sub)}</div>
+      </li>`
+    )
+    .join('');
+
+  const firstMark = marks[0];
+  const gradeNow = avg !== null ? gradeLetter(avg, c.scale) : null;
+
   mount(`
-    ${portalHero({
-      student: me.student,
-      teachers: me.teachers || [],
-      right: `<div class="stats">
-        <div class="stat"><div class="n">${avg !== null ? avg + '%' : '—'}</div><div class="l">Average</div></div>
-        <div class="stat"><div class="n">${termData.terms.length}</div><div class="l">Report cards</div></div>
-        <div class="stat"><div class="n">${marks.length}</div><div class="l">Scripts marked</div></div>
-      </div>`,
-    })}
-    ${portalTabs('#/portal')}
+    <section class="dash-head">
+      <div>
+        <p class="eyebrow">${esc(c.platform.name)} · Student portal ${readOnlyChip()}</p>
+        <h1>Hello, ${esc(studentName.split(' ')[0])}</h1>
+        <p class="sub">${[
+          me.student.className ? esc(me.student.className) : '',
+          me.student.studentNumber ? `Student No. ${esc(me.student.studentNumber)}` : '',
+          (me.teachers || []).length
+            ? `marked by ${me.teachers.length > 1 ? `${me.teachers.length} teachers` : esc(me.teachers[0].name)}`
+            : '',
+        ]
+          .filter(Boolean)
+          .join(' · ')}</p>
+      </div>
+      <a class="btn-pill" href="#/portal/marks">All grades</a>
+    </section>
 
     ${me.mustChangePassword ? `
-      <div class="notice notice-warn" style="display:flex;gap:.8rem;align-items:center;flex-wrap:wrap">
+      <div class="notice notice-warn" style="margin-bottom:1.2rem">
         <span>You're still using the temporary password your guardian gave you.</span>
         <a class="btn btn-primary btn-sm" href="#/portal/account">Choose your own password</a>
       </div>` : ''}
 
-    <div class="page-head">
-      <div>
-        <h1>${esc(COPY.student.home.title)}</h1>
-        <p class="sub">${esc(COPY.student.home.lead)}</p>
-      </div>
-      <div class="spacer"></div>
-      <input class="search" id="term-search" placeholder="Filter terms…" aria-label="Filter terms" />
-    </div>
-    <div class="term-list" id="term-list">${termCards}</div>
+    <section class="journey" aria-label="Your term journey">${journey}</section>
 
-    <div class="card" style="margin-top:1.4rem">
-      <div class="card-head">
-        <h2>Recent marks</h2>
-        <a class="btn btn-ghost btn-sm" href="#/portal/marks">All marks</a>
-      </div>
-      <div class="table-scroll">
-        <table class="data">
-          <thead><tr><th>Subject</th><th class="hide-sm">Marked by</th><th class="hide-sm">Term</th><th class="right">Score</th><th class="right">%</th><th>Grade</th></tr></thead>
-          <tbody>${recentRows}</tbody>
-        </table>
+    <div class="dash-grid">
+      <section class="card dash-col">
+        <div class="card-head">
+          <h2>My courses</h2>
+          <a class="btn-pill" href="#/portal/marks">See all</a>
+        </div>
+        <div class="course-grid">${courseTiles}</div>
+      </section>
+
+      <section class="card dash-col">
+        <div class="card-head"><h2>Key milestones</h2></div>
+        <ul class="ms-list">${milestoneList}</ul>
+      </section>
+
+      <div class="dash-side">
+        <section class="card">
+          <div class="card-head"><h2>Grades</h2></div>
+          <div class="card-pad grade-pad">
+            <div class="grade-hero">
+              <span class="n">${avg !== null ? avg : '—'}<small>%</small></span>
+              ${gradeNow ? `<span class="grade-pill ${gradeClass(gradeNow)}">${esc(gradeNow)}</span>` : ''}
+            </div>
+            <p class="muted small" style="margin:.2rem 0 .9rem">Average across ${marks.length} marked script${marks.length === 1 ? '' : 's'}</p>
+            <dl class="grade-rows">
+              <div><dt>Report cards</dt><dd>${termData.terms.length}</dd></div>
+              <div><dt>Best subject</dt><dd>${courses[0] ? esc(courses[0].subject) : '—'}</dd></div>
+              <div><dt>Teachers</dt><dd>${(me.teachers || []).length}</dd></div>
+            </dl>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h2>School notices</h2></div>
+          <ul class="ann-list">${noticeRows || '<li class="ann-item"><div class="ms-sub">Nothing published yet.</div></li>'}</ul>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h2>Quick links</h2></div>
+          <div class="quick-list">
+            <a href="#/portal/marks"><span class="quick-icon">▤</span> My grades <span class="chev">›</span></a>
+            ${firstMark ? `<a href="#/portal/result/${encodeURIComponent(firstMark.id)}"><span class="quick-icon">✓</span> Latest marked work <span class="chev">›</span></a>` : ''}
+            <a href="#/portal/account"><span class="quick-icon">⚙</span> Account settings <span class="chev">›</span></a>
+          </div>
+        </section>
       </div>
     </div>
 
     <p class="portal-foot">
       ${esc(c.platform.name)} · ${esc(c.school.name)} — you can view your results but not change them.
     </p>`);
-
-  const search = document.getElementById('term-search');
-  if (search)
-    search.addEventListener('input', () => {
-      const q = search.value.toLowerCase();
-      document.querySelectorAll('#term-list .term-card').forEach((el) => {
-        el.style.display = el.textContent.toLowerCase().includes(q) ? '' : 'none';
-      });
-    });
 }
 
 async function renderPortalMarks() {

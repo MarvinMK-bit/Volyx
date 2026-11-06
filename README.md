@@ -392,6 +392,16 @@ white chrome on the slate bar 17.9:1 (AAA). The hue itself is asserted too — 6
 grey (chroma ≤ 8/255), 30% dark slate, 10% a vibrant indigo — and the sheet must contain no green,
 pink, warm amber or cyan value at all.
 
+**The mark.** The Volyx logo is two pages of an open book meeting in a V — an inline SVG
+(`logoMark()` in `public/app.js`, gradients `#7c7cf5 → #312e81` and `#312e81 → #0f172a`). The same
+paths are the favicon, and `volyx-logo.svg` / `volyx-logo.png` hold the lockup with the wordmark and
+the "Educational Portal" line.
+
+**The student side is a dashboard.** A student sees their term journey as hexagon milestones, their
+subjects as course tiles with a progress bar and the teacher who marked them, a milestone timeline, a
+grades card, school notices and quick links — each card one purpose, all of it read-only by
+construction.
+
 **Type — one scale, nothing below 12px.** `--fs-2xs 12 · --fs-xs 13 · --fs-sm 14 · --fs-md 16 ·
 --fs-lg 18 · --fs-xl 22 · --fs-2xl 28`, body at `16px / 1.6`, line length capped by `--measure`
 (68ch) so paragraphs stay readable. Cards and tables use the same steps, and the marked-work viewer
