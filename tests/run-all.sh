@@ -10,8 +10,14 @@ if [ ! -d "$here/node_modules" ]; then
   ( cd "$here" && npm install --silent ) || { echo "npm install failed"; exit 1; }
 fi
 
+if [ ! -d "$app/node_modules" ]; then
+  echo "Installing app dependencies (better-sqlite3)…"
+  ( cd "$app" && npm install --silent ) || { echo "npm install failed"; exit 1; }
+fi
+
 tmp="$(mktemp -d)"
 cp -r "$app"/server.js "$app"/package.json "$app"/lib "$app"/config "$app"/public "$tmp"/ 2>/dev/null
+ln -s "$app/node_modules" "$tmp/node_modules"
 
 ( cd "$tmp" && PORT=3100 HOST=127.0.0.1 node server.js > "$tmp/server.log" 2>&1 & echo $! > "$tmp/pid" )
 for _ in $(seq 1 40); do
@@ -20,7 +26,7 @@ for _ in $(seq 1 40); do
 done
 
 failed=0
-for suite in api.test.mjs platform.api.test.mjs platform.ui.test.mjs viewer.ui.test.mjs upload.ui.test.mjs design.ui.test.mjs; do
+for suite in api.test.mjs platform.api.test.mjs platform.ui.test.mjs viewer.ui.test.mjs upload.ui.test.mjs design.ui.test.mjs backend.api.test.mjs backend.ui.test.mjs; do
   printf '%-24s ' "$suite"
   if ( cd "$here" && BASE=http://127.0.0.1:3100 node "$suite" 2>/dev/null | grep -q 'PASSED' ); then
     echo "ok"

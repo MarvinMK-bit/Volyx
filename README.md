@@ -18,7 +18,8 @@ Teacher uploads pages ──▶ POST /grading ──▶ polled until graded
 
 ```bash
 cd gradescript-portal
-npm start          # no dependencies to install
+npm install        # one dependency: better-sqlite3 (prebuilt binary, no compiler)
+npm start
 ```
 
 Open <http://localhost:3000>.
@@ -181,6 +182,98 @@ has on file; that login sees the same marks as the generated one.
 | `GET` | `/api/teacher/gradings/:id/pages/:n` | teacher (owner only) | page image for the teacher's own script |
 
 No endpoint returns a password hash, and `GET …/credentials` never returns a plaintext password.
+
+---
+
+## The database
+
+Volyx stores everything in **SQLite** — one file, `data/volyx.db`, in WAL mode. No server to run,
+no service to pay for, and the whole school fits in a few hundred kilobytes.
+
+```bash
+data/volyx.db              the database (auto-created on first run)
+data/volyx.db-wal          write-ahead log (SQLite manages it)
+data/backups/*.db          one snapshot per day, last 7 kept
+data/uploads/<grading>/    the script pages annotations are drawn over
+```
+
+What changed when the JSON file became a database:
+
+| Before | Now |
+|---|---|
+| every save rewrote the whole file | only rows that actually changed are written, in one transaction |
+| a crash mid-write could corrupt everything | SQLite guarantees the write either happened or did not |
+| sessions and codes were never deleted | expired ones are pruned at boot and every 10 minutes |
+| no history of who did what | `audit_log` — append-only, indexed, queryable |
+| a bad import was unrecoverable | a daily snapshot, plus `VACUUM` and `quick_check` on demand |
+
+`db.json` from an older version is imported automatically the first time the server starts, and the
+old file is kept as `data/db.imported-<timestamp>.json`.
+
+Point it somewhere else with `VOLYX_DB=/path/to/volyx.db`.
+
+Tables: `users`, `students`, `sessions`, `codes`, `gradings`, `terms`, `classes`, `audit_log` and a
+small `kv` table for settings. Each entity keeps its JSON document in a `data` column next to real
+columns (`email`, `owner_id`, `student_email`, `term_id`, `status`, `expires`) that exist purely so
+SQL can index and filter without parsing.
+
+### The audit trail
+
+Every privileged action is recorded with who, what, when and from which address: sign-in attempts
+(including failures), email verification, password changes, student create/update/delete/import,
+script upload, retry and deletion, key changes, exports and session revocations.
+
+- **Admin only:** `GET /api/admin/audit?limit=&offset=&action=&actor=`
+- **In the app:** Platform → **Audit log** in the left rail.
+
+The log is append-only: no endpoint edits or deletes an entry.
+
+### Bulk-import students
+
+`POST /api/students/import` takes the list a teacher already has:
+
+```csv
+name,email,class,number
+Amina Nakato,amina.nakato@gmail.com,S.2 Blue,S2/1
+Brian Ochieng,brian.ochieng@gmail.com,S.2 Blue,
+```
+
+- header row optional, column order free, quotes and commas handled properly
+- up to 500 students per import
+- `{"dryRun": true}` validates and previews without writing anything
+- every skipped row comes back with its line number and a reason
+- each imported student gets their own login, exactly like one added by hand
+- **In the app:** Students → **Import a list**.
+
+### Export results as CSV
+
+`GET /api/teacher/export.csv?term=<id|all>` streams the signed-in teacher's own results — student,
+class, subject, assessment, term, score, out of, percent, grade, status, date, grading id. UTF-8 with
+a BOM so Excel opens it cleanly.
+
+- **In the app:** Results → **Export CSV**.
+
+### Where am I signed in?
+
+- `GET /api/auth/sessions` — every live session, with device, address and last activity
+- `POST /api/auth/sessions/revoke` — `{"scope":"others"}` (keep this device), `{"scope":"all"}` (sign out
+  everywhere) or `{"scope":"one","sid":"…"}`
+- **In the app:** Settings (teachers) and Account (students) → **Where you're signed in**.
+
+Sessions now record the address and browser that created them, are capped at 20 per account, and are
+pruned when they expire.
+
+### Response headers
+
+Every page carries `Content-Security-Policy` (self, `data:` images, Google Identity Services),
+`X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin`, `Cross-Origin-Opener-Policy` and a
+restrictive `Permissions-Policy`. Deliberately **no** `X-Frame-Options`: the app is meant to be
+embedded in a preview pane.
+
+### Graceful shutdown
+
+`SIGTERM`/`SIGINT` stops accepting connections, finishes in-flight requests, flushes the database and
+checkpoints the WAL before exiting — so a restart never loses a committed write.
 
 ---
 

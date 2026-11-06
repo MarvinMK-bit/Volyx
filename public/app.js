@@ -335,6 +335,8 @@ async function api(path, { method = 'GET', body } = {}) {
 
 /* Line icons for the nav rail — one family, 17px, currentColor. */
 const NAV_ICON_PATHS = {
+  /* a clipboard with lines — the audit trail */
+  audit: '<path d="M9 4h6a1 1 0 0 1 1 1v1h1.5A1.5 1.5 0 0 1 19 7.5v11A1.5 1.5 0 0 1 17.5 20h-11A1.5 1.5 0 0 1 5 18.5v-11A1.5 1.5 0 0 1 6.5 6H8V5a1 1 0 0 1 1-1Zm-1 4H6.5v10.5h11V8H16"/><path d="M8.5 11.5h7M8.5 14.5h5"/>',
   dashboard: '<path d="M4 11.5 12 4l8 7.5"/><path d="M6.5 10.5V20h11v-9.5"/><path d="M10 20v-5h4v5"/>',
   results: '<path d="M4 19V5"/><path d="M4 19h16"/><rect x="7" y="11" width="3" height="5" rx="1"/><rect x="12" y="8" width="3" height="8" rx="1"/><rect x="17" y="12.5" width="3" height="3.5" rx="1"/>',
   marks: '<path d="M6 3.5h9l4 4V20H6z"/><path d="M14.5 3.5V8H19"/><path d="M9 12.5h6M9 16h4"/>',
@@ -348,6 +350,7 @@ const NAV_ICON_PATHS = {
 function navIcon(label) {
   const key =
     label === 'Platform' ? 'platform'
+    : label === 'Audit log' ? 'audit'
     : label === 'Students' ? 'students'
     : label === 'Upload' ? 'upload'
     : label === 'Marked work' ? 'marked'
@@ -393,7 +396,12 @@ function navLinks() {
         ['#/teacher/upload', 'Upload'],
         ['#/teacher/results', 'Results'],
         ['#/teacher/marked', 'Marked work'],
-        ...(state.user?.role === 'admin' ? [['#/admin', 'Platform']] : []),
+        ...(state.user?.role === 'admin'
+          ? [
+              ['#/admin', 'Platform'],
+              ['#/admin/audit', 'Audit log'],
+            ]
+          : []),
         ['#/teacher/settings', 'Settings'],
       ];
 
@@ -557,6 +565,7 @@ async function route() {
       if (parts[1] === 'result' && parts[2]) return await renderMarkedScript('student', decodeURIComponent(parts[2]));
       return await renderPortalHome();
     }
+    if (parts[0] === 'admin' && parts[1] === 'audit') return await renderAuditLog();
     if (parts[0] === 'admin') return await renderAdminPlatform();
     if (parts[0] === 'teacher') {
       if (parts[1] === 'students') return await renderStudents();
@@ -1542,7 +1551,11 @@ async function renderPortalAccount() {
           <button class="btn btn-primary btn-sm" type="submit">Update password</button>
         </form>
       </div>
-    </div>`);
+    </div>
+
+    <div class="card card-pad" id="sessions-card" style="margin-top:1rem"></div>`);
+
+  mountSessionsCard();
 
   const form = document.getElementById('pw-form');
   form.addEventListener('submit', async (e) => {
@@ -2368,6 +2381,7 @@ async function renderStudents() {
         <p class="sub">${esc(COPY.teacher.students.lead(data.students.length))}</p>
       </div>
       <div class="spacer"></div>
+      <button class="btn btn-ghost btn-sm" id="import-students">⬆ Import a list</button>
       <button class="btn btn-primary btn-sm" id="add-student">${esc(COPY.teacher.students.primary)}</button>
     </div>
     ${consoleTabs('#/teacher/students')}
@@ -2401,6 +2415,9 @@ async function renderStudents() {
   const openAdd = () => studentModal({ classes, onSaved: () => { state.overview = null; renderStudents(); } });
   document.getElementById('add-student')?.addEventListener('click', openAdd);
   document.getElementById('add-student-empty')?.addEventListener('click', openAdd);
+  document
+    .getElementById('import-students')
+    ?.addEventListener('click', () => importStudentsModal({ onDone: () => { state.overview = null; renderStudents(); } }));
 
   const search = document.getElementById('student-search');
   if (search)
@@ -3259,6 +3276,7 @@ async function renderTeacherResults() {
         <select id="class">${data.classes.map((c) => `<option value="${esc(c.id)}" ${c.id === classId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
       </div>
       <div class="filter-actions">
+        <a class="btn btn-ghost btn-sm" href="/api/teacher/export.csv?term=${encodeURIComponent(termId)}" download>⬇ Export CSV</a>
         <span class="badge ${report.published ? 'badge-ok' : 'badge-muted'}">${report.published ? 'Published to students' : 'Not published'}</span>
         <button class="btn ${report.published ? 'btn-ghost' : 'btn-primary'} btn-sm" id="publish" type="button">
           ${report.published ? 'Unpublish' : 'Publish to students'}
@@ -3436,7 +3454,11 @@ async function renderTeacherSettings() {
           </p>
         </div>
       </div>
-    </div>`);
+    </div>
+
+    <div class="card card-pad" id="sessions-card" style="margin-top:1rem"></div>`);
+
+  mountSessionsCard();
 
   const loadDiag = async () => {
     const box = document.getElementById('diag-log');
@@ -3550,7 +3572,268 @@ async function renderTeacherSettings() {
   });
 }
 
+/* ============================================================
+   IMPORT STUDENTS FROM A LIST (backend: POST /api/students/import)
+   ============================================================ */
+
+function importStudentsModal({ onDone }) {
+  const m = openModal({
+    title: 'Import students from a list',
+    wide: true,
+    body: `
+      <p class="small muted" style="margin:0 0 .9rem">
+        Paste what you already have — one student per line. A header row
+        (<span class="mono">name,email,class</span>) is optional, and class is optional too.
+      </p>
+      <div class="field">
+        <label for="import-csv">Students</label>
+        <textarea id="import-csv" rows="9" class="mono small" spellcheck="false"
+          placeholder="name,email,class&#10;Amina Nakato,amina.nakato@gmail.com,S.2 Blue&#10;Brian Ochieng,brian.ochieng@gmail.com,S.2 Blue"></textarea>
+        <div class="hint">Names and emails are required. Each student gets their own login as soon as the row is added.</div>
+      </div>
+      <div id="import-report"></div>`,
+    actions: [
+      { id: 'check', label: 'Check the list' },
+      { id: 'import', label: 'Import students', class: 'btn-primary' },
+    ],
+  });
+
+  const report = () => m.body.querySelector('#import-report');
+  const textarea = () => m.body.querySelector('#import-csv');
+
+  const render = (data) => {
+    const box = report();
+    if (data.dryRun) {
+      box.innerHTML = `
+        <div class="notice ${data.willSkip ? 'notice-warn' : 'notice-ok'} small">
+          ${data.willCreate} student${data.willCreate === 1 ? '' : 's'} ready to add${
+            data.willSkip ? `, ${data.willSkip} row${data.willSkip === 1 ? '' : 's'} will be skipped` : ''
+          }.
+        </div>
+        ${data.preview.length ? `<div class="table-scroll"><table class="data small">
+          <thead><tr><th>Name</th><th>Email</th><th>Class</th></tr></thead>
+          <tbody>${data.preview.map((r) => `<tr><td>${esc(r.name)}</td><td class="mono">${esc(r.email)}</td><td>${esc(r.className)}</td></tr>`).join('')}</tbody>
+        </table></div>` : ''}
+        ${data.skipped.length ? `<p class="small muted" style="margin-top:.7rem">Skipped: ${data.skipped
+          .map((r) => `line ${r.line} (${esc(r.reason.toLowerCase())})`)
+          .join(', ')}</p>` : ''}`;
+    } else {
+      box.innerHTML = `
+        <div class="notice notice-ok small">
+          ${esc(data.message || 'Imported.')}
+        </div>
+        ${data.problems?.length ? `<p class="small muted" style="margin-top:.7rem">Skipped: ${data.problems
+          .map((r) => `line ${r.line} (${esc(r.reason.toLowerCase())})`)
+          .join(', ')}</p>` : ''}`;
+    }
+  };
+
+  m.on('check', async () => {
+    const csv = textarea().value;
+    if (!csv.trim()) return toast('Paste the list first.', true);
+    try {
+      render(await api('/api/students/import', { method: 'POST', body: { csv, dryRun: true } }));
+    } catch (err) { toast(err.message, true); }
+  });
+
+  m.on('import', async () => {
+    const csv = textarea().value;
+    if (!csv.trim()) return toast('Paste the list first.', true);
+    try {
+      const res = await api('/api/students/import', { method: 'POST', body: { csv } });
+      toast(res.message || 'Students imported.');
+      m.close();
+      onDone?.();
+    } catch (err) { toast(err.message, true); }
+  });
+}
+
+/* ============================================================
+   WHERE AM I SIGNED IN? (backend: /api/auth/sessions)
+   ============================================================ */
+
+const when = (iso) => {
+  if (!iso) return '—';
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return '—';
+  const mins = Math.round((Date.now() - t) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  if (mins < 60 * 24) return `${Math.round(mins / 60)} h ago`;
+  return fmtDate(iso);
+};
+
+/** Fill #sessions-card with the account's live sessions. */
+async function mountSessionsCard() {
+  const host = document.getElementById('sessions-card');
+  if (!host) return;
+  try {
+    const data = await api('/api/auth/sessions');
+    const list = data.sessions.filter((x) => x.live);
+    host.innerHTML = `
+      <div class="sessions-head">
+        <h2>Where you're signed in</h2>
+        <span class="badge badge-muted">${list.length} device${list.length === 1 ? '' : 's'}</span>
+      </div>
+      <div class="session-list">
+        ${list.length ? list.map((x) => `
+          <div class="session-row">
+            <div class="session-dot ${x.current ? 'on' : ''}"></div>
+            <div>
+              <strong>${esc(x.device)}</strong>
+              ${x.current ? '<span class="badge badge-ok tiny">this device</span>' : ''}
+              <div class="small muted">${esc(x.ip || 'unknown address')} · active ${esc(when(x.lastSeen))}</div>
+            </div>
+            ${x.current ? '' : `<button class="btn btn-ghost btn-sm" data-revoke="${esc(x.id)}">Sign out</button>`}
+          </div>`).join('')
+        : '<p class="small muted">No other devices.</p>'}
+      </div>
+      <div class="sessions-foot">
+        <button class="btn btn-ghost btn-sm" id="signout-others">Sign out everywhere else</button>
+      </div>`;
+
+    host.querySelectorAll('[data-revoke]').forEach((btn) =>
+      btn.addEventListener('click', async () => {
+        try {
+          await api('/api/auth/sessions/revoke', { method: 'POST', body: { scope: 'one', sid: btn.dataset.revoke } });
+          toast('That device was signed out.');
+          mountSessionsCard();
+        } catch (err) { toast(err.message, true); }
+      })
+    );
+
+    host.querySelector('#signout-others')?.addEventListener('click', async () => {
+      const ok = await confirmDialog({
+        title: 'Sign out everywhere else?',
+        message: 'Every other browser signed in to this account will have to sign in again. This device stays signed in.',
+        confirmLabel: 'Sign out other devices',
+      });
+      if (!ok) return;
+      try {
+        const res = await api('/api/auth/sessions/revoke', { method: 'POST', body: { scope: 'others' } });
+        toast(res.revoked ? `${res.revoked} device${res.revoked === 1 ? '' : 's'} signed out.` : 'No other devices were signed in.');
+        mountSessionsCard();
+      } catch (err) { toast(err.message, true); }
+    });
+  } catch (err) {
+    host.innerHTML = `<h2>Where you're signed in</h2><p class="small muted">${esc(err.message)}</p>`;
+  }
+}
+
+/* ============================================================
+   AUDIT LOG (admin) — backend: GET /api/admin/audit
+   ============================================================ */
+
+const AUDIT_LABEL = {
+  'auth.login': 'Signed in',
+  'auth.login.code': 'Signed in with a code',
+  'auth.login.google': 'Signed in with Google',
+  'auth.login.failed': 'Failed sign-in',
+  'auth.logout': 'Signed out',
+  'account.signup': 'Created an account',
+  'account.verified': 'Verified an email',
+  'account.password': 'Changed a password',
+  'account.password.reset': 'Reset a password',
+  'student.create': 'Added a student',
+  'student.update': 'Updated a student',
+  'student.delete': 'Deleted a student',
+  'student.import': 'Imported students',
+  'grading.create': 'Queued a script',
+  'grading.delete': 'Deleted a grading',
+  'results.export': 'Exported results',
+  'results.clear': 'Cleared results',
+  'platform.key.set': 'Set the platform key',
+  'platform.key.clear': 'Removed the platform key',
+  'session.revoke': 'Revoked sessions',
+};
+
+async function renderAuditLog() {
+  if (state.user?.role !== 'admin') {
+    location.hash = '#/teacher';
+    return;
+  }
+  view.className = 'view';
+  mount(skeleton(3));
+
+  const params = new URLSearchParams(location.hash.split('?')[1] || '');
+  const action = params.get('action') || '';
+  const offset = Math.max(Number(params.get('offset') || 0), 0);
+  const limit = 50;
+
+  const data = await api(
+    `/api/admin/audit?limit=${limit}&offset=${offset}${action ? `&action=${encodeURIComponent(action)}` : ''}`
+  );
+
+  const rows = data.entries.map((e) => `
+    <tr>
+      <td class="mono small nowrap">${esc(when(e.at))}</td>
+      <td><strong>${esc(AUDIT_LABEL[e.action] || e.action)}</strong>
+        <div class="muted small mono">${esc(e.action)}</div>
+      </td>
+      <td>${e.actorEmail ? `<span class="mono small">${esc(e.actorEmail)}</span>` : '<span class="muted small">system</span>'}
+        ${e.role ? `<div class="muted small">${esc(e.role)}</div>` : ''}
+      </td>
+      <td class="small">${esc(e.target || '—')}</td>
+      <td class="mono small hide-sm">${esc(e.ip || '—')}</td>
+    </tr>`).join('');
+
+  const store = data.storage || {};
+  const pages = Math.max(1, Math.ceil(data.total / limit));
+  const page = Math.floor(offset / limit) + 1;
+
+  mount(`
+    <div class="page-head">
+      <div>
+        <h1>Audit log</h1>
+        <p class="sub">Every sign-in, student change and script upload, in order. Append-only.</p>
+      </div>
+      <div class="spacer"></div>
+      <a class="btn btn-ghost btn-sm" href="#/admin">← Platform</a>
+    </div>
+
+    <div class="stats admin-stats">
+      <div class="stat"><div class="n">${data.total}</div><div class="l">Entries</div></div>
+      <div class="stat"><div class="n">${store.counts?.users ?? 0}</div><div class="l">Accounts</div></div>
+      <div class="stat"><div class="n">${store.counts?.students ?? 0}</div><div class="l">Students</div></div>
+      <div class="stat"><div class="n">${Math.round((store.bytes || 0) / 1024)} KB</div><div class="l">Database · ${esc(store.engine || 'sqlite')}</div></div>
+    </div>
+
+    <div class="card card-pad filter-bar">
+      <div class="field" style="margin:0;min-width:220px">
+        <label for="audit-action">What happened</label>
+        <select id="audit-action">
+          <option value="">Everything</option>
+          ${data.actions.map((a) => `<option value="${esc(a.action)}" ${a.action === action ? 'selected' : ''}>${esc(AUDIT_LABEL[a.action] || a.action)} (${a.n})</option>`).join('')}
+        </select>
+      </div>
+      <div class="filter-actions">
+        <span class="small muted">${data.total ? `Showing ${offset + 1}–${Math.min(offset + limit, data.total)} of ${data.total}` : 'Nothing recorded yet'}</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>History</h2></div>
+      <div class="table-scroll">
+        <table class="data" id="audit-table">
+          <thead><tr><th>When</th><th>Action</th><th>Who</th><th>Target</th><th class="hide-sm">Address</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="5" class="muted" style="text-align:center;padding:2rem">Nothing recorded yet — sign in or add a student and it appears here.</td></tr>'}</tbody>
+        </table>
+      </div>
+      ${pages > 1 ? `<div class="pager">
+        <a class="btn btn-ghost btn-sm ${offset === 0 ? 'disabled' : ''}" ${offset === 0 ? 'aria-disabled="true"' : `href="#/admin/audit?offset=${Math.max(0, offset - limit)}${action ? `&action=${encodeURIComponent(action)}` : ''}"`}>← Newer</a>
+        <span class="small muted">Page ${page} of ${pages}</span>
+        <a class="btn btn-ghost btn-sm ${page >= pages ? 'disabled' : ''}" ${page >= pages ? 'aria-disabled="true"' : `href="#/admin/audit?offset=${offset + limit}${action ? `&action=${encodeURIComponent(action)}` : ''}"`}>Older →</a>
+      </div>` : ''}
+    </div>`);
+
+  document.getElementById('audit-action')?.addEventListener('change', (e) => {
+    const v = e.target.value;
+    location.hash = `#/admin/audit${v ? `?action=${encodeURIComponent(v)}` : ''}`;
+  });
+}
+
 /* ---------------- boot ---------------- */
+
 
 async function boot() {
   applyTheme(store.get('volyx.theme') || (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));

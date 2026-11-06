@@ -14,7 +14,21 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
-import { db, persist, uid, resetDb } from './lib/db.js';
+import {
+  db,
+  persist,
+  uid,
+  resetDb,
+  audit,
+  readAudit,
+  auditActions,
+  sessionsFor,
+  pruneExpired,
+  stats as dbStats,
+  integrity,
+  backupNow,
+  closeStore,
+} from './lib/db.js';
 import {
   seedDatabase,
   DEMO_EMAIL,
@@ -111,6 +125,30 @@ function tailLog(limit = 60) {
   }
 }
 
+/* ---------------- audit + client address ---------------- */
+
+/** Best-effort caller address, honouring one proxy hop. */
+function clientIp(req) {
+  const fwd = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return fwd || req.socket?.remoteAddress || '';
+}
+
+/**
+ * Record something a person did that changes data or access.
+ * Never throws, never blocks the response.
+ */
+function note(req, action, { actor = null, target = null, detail = null } = {}) {
+  audit({
+    action,
+    actor,
+    actorId: actor?.id,
+    role: actor?.role,
+    target,
+    ip: req ? clientIp(req) : null,
+    detail,
+  });
+}
+
 /* ---------------- boot ---------------- */
 
 function boot() {
@@ -159,7 +197,59 @@ function boot() {
 }
 boot();
 
+/* ---------------- housekeeping ----------------
+   Sessions and verification codes expire; nothing used to remove them, so the
+   database only ever grew. This runs at boot and every ten minutes after. */
+
+function housekeeping() {
+  try {
+    const removed = pruneExpired();
+    if (removed.sessions || removed.codes) {
+      syslog('housekeeping', removed);
+    }
+  } catch (err) {
+    console.error('[housekeeping]', err.message);
+  }
+}
+housekeeping();
+const HOUSEKEEPING = setInterval(housekeeping, 10 * 60 * 1000);
+HOUSEKEEPING.unref?.();
+
+/* One snapshot a day, kept for a week — a bad import is recoverable. */
+try {
+  const snapshot = backupNow();
+  if (snapshot) console.log(`  Backup: ${path.basename(snapshot)}`);
+} catch { /* a missing backup must not stop the server */ }
+
 /* ---------------- helpers ---------------- */
+
+/* Headers every response carries. There is deliberately no X-Frame-Options /
+   frame-ancestors rule: the app is meant to be embedded in a preview pane,
+   and clickjacking is not a real risk for a page that cannot be framed by a
+   logged-out user anyway. */
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'same-origin',
+  'X-Permitted-Cross-Domain-Policies': 'none',
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Permissions-Policy': 'geolocation=(), microphone=(), camera=()',
+};
+
+/* Everything the page actually needs: its own files, data: images (the logo
+   and avatars are inline SVG), Google Identity Services, and inline styles
+   (the theme sets CSS variables through style attributes). */
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "img-src 'self' data: blob:",
+  "style-src 'self' 'unsafe-inline'",
+  "script-src 'self' https://accounts.google.com",
+  "connect-src 'self' https://accounts.google.com",
+  "frame-src https://accounts.google.com",
+  "font-src 'self'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "object-src 'none'",
+].join('; ');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -179,6 +269,7 @@ function json(res, status, body) {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(payload),
     'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
   });
   res.end(payload);
 }
@@ -232,6 +323,13 @@ function session(req) {
     delete d.sessions[sid];
     persist();
     return null;
+  }
+  // Remember activity at most once every five minutes, so a page that polls
+  // does not rewrite the session row on every request.
+  const last = new Date(s.lastSeen || s.created || 0).getTime();
+  if (Date.now() - last > 5 * 60 * 1000) {
+    s.lastSeen = new Date().toISOString();
+    persist();
   }
   return { ...s, sid };
 }
@@ -342,14 +440,29 @@ function requireAdmin(req, res) {
   return auth;
 }
 
-function issueSession(userId) {
+const MAX_SESSIONS_PER_USER = 20;
+
+function issueSession(userId, req = null) {
   const d = db();
   const sid = newToken();
+  const now = new Date();
   d.sessions[sid] = {
     userId,
-    created: new Date().toISOString(),
-    expires: new Date(Date.now() + SESSION_HOURS * 3600 * 1000).toISOString(),
+    created: now.toISOString(),
+    expires: new Date(now.getTime() + SESSION_HOURS * 3600 * 1000).toISOString(),
+    ip: req ? clientIp(req) : '',
+    userAgent: req ? String(req.headers['user-agent'] || '').slice(0, 200) : '',
+    lastSeen: now.toISOString(),
   };
+
+  // Keep at most 20 live sessions per account: the oldest goes first.
+  const mine = Object.entries(d.sessions)
+    .filter(([, v]) => v.userId === userId)
+    .sort((a, b) => String(a[1].created).localeCompare(String(b[1].created)));
+  for (const [oldSid] of mine.slice(0, Math.max(0, mine.length - MAX_SESSIONS_PER_USER))) {
+    delete d.sessions[oldSid];
+  }
+
   persist();
   return sid;
 }
@@ -809,7 +922,22 @@ async function handleApi(req, res, url) {
   const d = db();
 
   if (p === '/api/health') {
-    return json(res, 200, { ok: true, demo: isDemo(), uptime: Math.round(process.uptime()) });
+    const store = dbStats();
+    return json(res, 200, {
+      ok: true,
+      demo: isDemo(),
+      uptime: Math.round(process.uptime()),
+      storage: {
+        engine: store.engine,
+        journal: store.journal,
+        bytes: store.bytes,
+        accounts: store.counts?.users ?? 0,
+        students: store.counts?.students ?? 0,
+        gradings: store.counts?.gradings ?? 0,
+        sessions: store.counts?.sessions ?? 0,
+      },
+      integrity: integrity(),
+    });
   }
 
   /* A browser-side error, reported by the app itself. */
@@ -897,6 +1025,7 @@ async function handleApi(req, res, url) {
     }
     persist();
 
+    note(req, 'account.signup', { actor: user, target: email });
     const delivery = await issueCode({ email, purpose: 'verify' });
     return json(res, 200, {
       ok: true,
@@ -924,7 +1053,8 @@ async function handleApi(req, res, url) {
     resetRateLimit(`code:${email}`);
     settleRole(user, user.accountType);
 
-    const sid = issueSession(user.id);
+    note(req, 'account.verified', { actor: user, target: email });
+    const sid = issueSession(user.id, req);
     res.setHeader('Set-Cookie', sessionCookie(sid));
     return json(res, 200, { ok: true, token: sid, user: meFor(user), home: ROLE_HOME[roleOf(user)] });
   }
@@ -992,8 +1122,9 @@ async function handleApi(req, res, url) {
     resetRateLimit(`code:${email}`);
     settleRole(user, user.accountType);
 
-    const sid = issueSession(user.id);
+    const sid = issueSession(user.id, req);
     res.setHeader('Set-Cookie', sessionCookie(sid));
+    note(req, 'auth.login.code', { actor: user, target: email });
     return json(res, 200, { ok: true, method: 'code', token: sid, user: meFor(user), home: ROLE_HOME[roleOf(user)] });
   }
 
@@ -1006,7 +1137,10 @@ async function handleApi(req, res, url) {
     if (rateLimited(`login:${email}`, 10)) {
       return json(res, 429, { error: 'Too many attempts. Wait a few minutes and try again.' });
     }
-    if (!user) return json(res, 401, { error: 'Email or password is incorrect.' });
+    if (!user) {
+      note(req, 'auth.login.failed', { target: email, detail: { reason: 'no-account' } });
+      return json(res, 401, { error: 'Email or password is incorrect.' });
+    }
 
     if (!user.emailVerified) {
       return json(res, 403, {
@@ -1022,13 +1156,15 @@ async function handleApi(req, res, url) {
       });
     }
     if (!verifyPassword(password, user.passwordSalt, user.passwordHash)) {
+      note(req, 'auth.login.failed', { target: email, detail: { reason: 'password' } });
       return json(res, 401, { error: 'Email or password is incorrect.' });
     }
 
     resetRateLimit(`login:${email}`);
     settleRole(user, user.accountType);
     user.lastSignInAt = new Date().toISOString();
-    const sid = issueSession(user.id);
+    note(req, 'auth.login', { actor: user, target: email });
+    const sid = issueSession(user.id, req);
     res.setHeader('Set-Cookie', sessionCookie(sid));
     return json(res, 200, { ok: true, token: sid, user: meFor(user), home: ROLE_HOME[roleOf(user)] });
   }
@@ -1068,7 +1204,8 @@ async function handleApi(req, res, url) {
     user.emailVerified = true;
     persist();
 
-    const sid = issueSession(user.id);
+    note(req, 'account.password.reset', { actor: user, target: email });
+    const sid = issueSession(user.id, req);
     res.setHeader('Set-Cookie', sessionCookie(sid));
     return json(res, 200, { ok: true, token: sid, user: meFor(user) });
   }
@@ -1107,7 +1244,8 @@ async function handleApi(req, res, url) {
     }
 
     settleRole(user, user.accountType);
-    const sid = issueSession(user.id);
+    note(req, 'auth.login.google', { actor: user, target: email });
+    const sid = issueSession(user.id, req);
     res.setHeader('Set-Cookie', sessionCookie(sid));
     return json(res, 200, { ok: true, token: sid, user: meFor(user), home: ROLE_HOME[roleOf(user)] });
   }
@@ -1139,6 +1277,7 @@ async function handleApi(req, res, url) {
     user.passwordChangedAt = new Date().toISOString();
     persist();
 
+    note(req, 'account.password', { actor: user, target: user.email });
     // Rotating a password ends every other session for that account.
     const d = db();
     for (const [sid, sess] of Object.entries(d.sessions)) {
@@ -1151,6 +1290,7 @@ async function handleApi(req, res, url) {
   if (p === '/api/auth/logout' && method === 'POST') {
     const s = session(req);
     if (s) {
+      note(req, 'auth.logout', { actor: d.users.find((u) => u.id === s.userId), target: s.sid.slice(0, 8) });
       delete d.sessions[s.sid];
       persist();
     }
@@ -1218,6 +1358,7 @@ async function handleApi(req, res, url) {
     const { account, credentials } = issueStudentLogin(d, student, auth.user.id);
     persist();
 
+    note(req, 'student.create', { actor: auth.user, target: student.email || student.name, detail: { studentId: student.id } });
     return json(res, 201, {
       ok: true,
       student: publicStudent(student),
@@ -1261,6 +1402,7 @@ async function handleApi(req, res, url) {
       student.level = cls.level;
     }
     persist();
+    note(req, 'student.update', { actor: auth.user, target: student.email || student.name, detail: { studentId: student.id } });
     return json(res, 200, { ok: true, student: publicStudent(student) });
   }
 
@@ -1275,6 +1417,7 @@ async function handleApi(req, res, url) {
     // Deleting the profile deletes the login that belonged to it.
     if (student.accountId) d.users = d.users.filter((u) => u.id !== student.accountId);
     persist();
+    note(req, 'student.delete', { actor: auth.user, target: student.email || student.name, detail: { studentId: student.id } });
     return json(res, 200, { ok: true, removed: student.id });
   }
 
@@ -1582,6 +1725,11 @@ async function handleApi(req, res, url) {
       d.settings.apiKeySetAt = new Date().toISOString();
       persist();
     }
+    note(req, 'platform.key.set', {
+      actor: auth.user,
+      target: keyHint(key),
+      detail: { accepted: check.ok, message: String(check.message || '').slice(0, 200) },
+    });
     markKeyStatus(check.ok ? 'ok' : 'invalid', check.message);
     return json(res, check.ok ? 200 : 400, {
       ok: check.ok,
@@ -1600,6 +1748,7 @@ async function handleApi(req, res, url) {
     d.settings.keyStatus = 'missing';
     d.settings.keyMessage = '';
     persist();
+    note(req, 'platform.key.clear', { actor: auth.user });
     return json(res, 200, { ok: true, demo: true });
   }
 
@@ -1637,6 +1786,8 @@ async function handleApi(req, res, url) {
         emailsAddressed: new Set(d.gradings.map((g) => g.studentEmail).filter(Boolean)).size,
       },
       demo: isDemo(),
+      storage: dbStats(),
+      recent: readAudit({ limit: 8 }).entries,
     });
   }
 
@@ -1795,6 +1946,11 @@ async function handleApi(req, res, url) {
         mode: isDemo() ? 'demo' : 'live',
       });
 
+      note(req, 'grading.create', {
+        actor: auth.user,
+        target: record.studentEmail,
+        detail: { gradingId: record.id, subject, termId, pages: record.pages.length, mode: isDemo() ? 'demo' : 'live' },
+      });
       return json(res, 202, {
         ok: true,
         message: isDemo() ? 'Queued in demo mode.' : 'Grading queued successfully!',
@@ -1864,6 +2020,7 @@ async function handleApi(req, res, url) {
     d.gradings.splice(idx, 1);
     removePages(g.id);
     persist();
+    note(req, 'grading.delete', { actor: auth.user, target: g.studentEmail, detail: { gradingId: g.id } });
     return json(res, 200, { ok: true });
   }
 
@@ -2013,6 +2170,7 @@ async function handleApi(req, res, url) {
       if (t.published) delete t.published[auth.user.id];
     });
     persist();
+    note(req, 'results.clear', { actor: auth.user, detail: { removed: before - d.gradings.length } });
     return json(res, 200, { ok: true, removed: before - d.gradings.length });
   }
 
@@ -2031,7 +2189,323 @@ async function handleApi(req, res, url) {
     return json(res, 200, { ok: true, removed });
   }
 
+  /* ================= AUDIT TRAIL (admin only) ================= */
+
+  if (p === '/api/admin/audit' && method === 'GET') {
+    const auth = requireAdmin(req, res);
+    if (!auth) return;
+    const limit = Math.min(Math.max(Number(url.searchParams.get('limit') || 50), 1), 200);
+    const offset = Math.max(Number(url.searchParams.get('offset') || 0), 0);
+    const action = String(url.searchParams.get('action') || '').trim();
+    const actorId = String(url.searchParams.get('actor') || '').trim();
+    const { entries, total } = readAudit({ limit, offset, action, actorId });
+    return json(res, 200, {
+      ok: true,
+      total,
+      limit,
+      offset,
+      entries,
+      actions: auditActions(),
+      storage: dbStats(),
+    });
+  }
+
+  /* ================= CSV EXPORT (teacher's own results) ================= */
+
+  if ((p === '/api/teacher/export.csv' || p === '/api/teacher/export') && method === 'GET') {
+    const auth = requireAuth(req, res);
+    if (!auth) return;
+    if (!canTeach(roleOf(auth.user))) {
+      return json(res, 403, { error: 'Only teacher accounts can export results.', code: 'teacher-only' });
+    }
+    const termFilter = String(url.searchParams.get('term') || 'all');
+    const mine = d.gradings.filter((g) => g.ownerId === auth.user.id);
+    const rows = termFilter === 'all' ? mine : mine.filter((g) => g.termId === termFilter);
+
+    const header = [
+      'Student', 'Student number', 'Class', 'Subject', 'Assessment', 'Term',
+      'Score', 'Out of', 'Percent', 'Grade', 'Status', 'Marked on', 'Grading ID',
+    ];
+    const body = [header];
+    const scale = GRADING_SCALE;
+    for (const g of rows.slice().sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))) {
+      const student = d.students.find((x) => x.id === g.studentId);
+      const term = d.terms.find((t) => t.id === g.termId);
+      const total = typeof g.totalMark === 'number' ? g.totalMark : null;
+      const max = typeof g.maximumMark === 'number' ? g.maximumMark : null;
+      const percent = total !== null && max ? Math.round((total / max) * 1000) / 10 : null;
+      const band = percent === null ? null : scale.find((b) => percent >= b.min && percent <= b.max);
+      body.push([
+        g.studentName || student?.name || g.studentFullname || '',
+        g.studentNumber || student?.studentNumber || '',
+        student?.className || g.level || '',
+        g.subject || '',
+        g.assessmentType || '',
+        term?.name || g.termId || '',
+        total === null ? '' : total,
+        max === null ? '' : max,
+        percent === null ? '' : percent,
+        band?.grade || g.grade || '',
+        g.status || '',
+        g.updatedAt || g.createdAt || '',
+        g.id,
+      ]);
+    }
+
+    note(req, 'results.export', { actor: auth.user, target: termFilter, detail: { rows: body.length - 1 } });
+    return sendCsv(res, `volyx-results-${termFilter === 'all' ? 'all-terms' : termFilter}.csv`, toCsv(body));
+  }
+
+  /* ================= BULK STUDENT IMPORT ================= */
+
+  if ((p === '/api/students/import' || p === '/api/students/import.csv') && method === 'POST') {
+    const auth = requireAuth(req, res);
+    if (!auth) return;
+    if (!canTeach(roleOf(auth.user))) {
+      return json(res, 403, { error: 'Only teacher accounts manage students.', code: 'teacher-only' });
+    }
+
+    const body = await readJson(req);
+    const dryRun = Boolean(body.dryRun);
+    const rows = Array.isArray(body.rows) ? body.rows.map((r) => Object.values(r)) : parseCsv(body.csv || '');
+    if (!rows.length) return json(res, 400, { error: 'Paste a list of students — name and email per line.' });
+    if (rows.length > 501) return json(res, 400, { error: 'Import at most 500 students at a time.' });
+
+    // Header row? (name, email, class …)
+    // A real list needs at least two columns before we can even look for a
+    // name and an email; one column is always a mistake worth naming.
+    const width = Math.max(...rows.map((r) => r.length));
+    if (width < 2) {
+      return json(res, 400, {
+        error: 'Each line needs a name and an email, separated by a comma — for example: Amina Nakato,amina@example.com',
+        code: 'missing-columns',
+      });
+    }
+
+    const first = rows[0].map((c) => String(c).trim().toLowerCase());
+    const hasHeader = first.includes('name') || first.includes('student') || first.includes('email');
+    const header = hasHeader ? first : ['name', 'email', 'class', 'number'];
+    const dataRows = hasHeader ? rows.slice(1) : rows;
+
+    const col = (...names) => {
+      for (const n of names) {
+        const idx = header.indexOf(n);
+        if (idx !== -1) return idx;
+      }
+      return -1;
+    };
+    const iName = col('name', 'student', 'student name', 'full name');
+    const iEmail = col('email', 'student email', 'e-mail', 'mail');
+    const iClass = col('class', 'class name', 'form');
+    const iNumber = col('number', 'student number', 'adm', 'admission number');
+    if (iName === -1 || iEmail === -1) {
+      return json(res, 400, {
+        error: 'The file needs a name column and an email column (any order).',
+        code: 'missing-columns',
+        found: header,
+      });
+    }
+
+    const created = [];
+    const skipped = [];
+    const existing = new Set(
+      ownedStudents(auth.user.id).map((x) => String(x.email || '').toLowerCase()).filter(Boolean)
+    );
+
+    dataRows.forEach((row, i) => {
+      const line = i + (hasHeader ? 2 : 1);
+      const name = String(row[iName] || '').trim().slice(0, 120);
+      const email = normEmail(row[iEmail]);
+      const classText = iClass === -1 ? '' : String(row[iClass] || '').trim().toLowerCase();
+      const numberText = iNumber === -1 ? '' : String(row[iNumber] || '').trim().slice(0, 40);
+
+      if (!name || name.length < 2) return skipped.push({ line, reason: 'Missing name', value: name });
+      if (!email || !validEmail(email)) return skipped.push({ line, reason: 'Invalid email', value: email });
+      if (existing.has(email)) return skipped.push({ line, reason: 'Already one of your students', value: email });
+      if (created.length >= 500) return skipped.push({ line, reason: 'Over the 500-row limit', value: email });
+
+      const cls =
+        (classText && d.classes.find((c) => c.name.toLowerCase() === classText || c.id.toLowerCase() === classText)) ||
+        d.classes.find((c) => classText && c.level.toLowerCase() === classText) ||
+        d.classes[0];
+      if (!cls) return skipped.push({ line, reason: 'No classes are configured', value: classText });
+
+      existing.add(email);
+      created.push({
+        line,
+        name,
+        email,
+        classId: cls.id,
+        className: cls.name,
+        studentNumber: numberText,
+      });
+    });
+
+    if (dryRun) {
+      return json(res, 200, {
+        ok: true,
+        dryRun: true,
+        willCreate: created.length,
+        willSkip: skipped.length,
+        preview: created.slice(0, 20),
+        skipped: skipped.slice(0, 50),
+      });
+    }
+
+    const results = [];
+    for (const entry of created) {
+      const cls = d.classes.find((c) => c.id === entry.classId);
+      const count = ownedStudents(auth.user.id).length;
+      const student = {
+        id: uid('st'),
+        ownerId: auth.user.id,
+        name: entry.name,
+        email: entry.email,
+        studentNumber: entry.studentNumber || `${cls.level.replace('.', '')}/${100 + count + 1}`,
+        classId: cls.id,
+        className: cls.name,
+        level: cls.level,
+        createdAt: new Date().toISOString(),
+        importedAt: new Date().toISOString(),
+      };
+      d.students.push(student);
+      const { credentials } = issueStudentLogin(d, student, auth.user.id);
+      results.push({ student: publicStudent(student), loginEmail: credentials.email });
+    }
+    persist();
+
+    note(req, 'student.import', {
+      actor: auth.user,
+      detail: { created: results.length, skipped: skipped.length },
+    });
+
+    return json(res, 200, {
+      ok: true,
+      created: results.length,
+      skipped: skipped.length,
+      students: results.slice(0, 200),
+      problems: skipped.slice(0, 100),
+      message: `${results.length} student${results.length === 1 ? '' : 's'} added${
+        skipped.length ? `, ${skipped.length} skipped` : ''
+      }. Each one can sign in with their own email.`,
+    });
+  }
+
+  /* ================= WHERE AM I SIGNED IN? ================= */
+
+  if (p === '/api/auth/sessions' && method === 'GET') {
+    const auth = requireAuth(req, res);
+    if (!auth) return;
+    const mine = sessionsFor(auth.user.id);
+    const current = session(req);
+    const label = (ua = '') => {
+      const browser = /Edg\//.test(ua) ? 'Edge'
+        : /OPR\//.test(ua) ? 'Opera'
+        : /Chrome\//.test(ua) ? 'Chrome'
+        : /Safari\//.test(ua) ? 'Safari'
+        : /Firefox\//.test(ua) ? 'Firefox'
+        : /curl|node|axios/i.test(ua) ? 'Command line'
+        : 'Unknown browser';
+      const os = /Windows/.test(ua) ? 'Windows'
+        : /Mac OS X|Macintosh/.test(ua) ? 'macOS'
+        : /Android/.test(ua) ? 'Android'
+        : /iPhone|iPad/.test(ua) ? 'iOS'
+        : /Linux/.test(ua) ? 'Linux'
+        : '';
+      return os ? `${browser} on ${os}` : browser;
+    };
+    return json(res, 200, {
+      ok: true,
+      current: current?.sid || null,
+      sessions: mine.map((x) => {
+        const live = new Date(x.expires) > new Date();
+        return {
+          id: x.sid,
+          device: label(x.user_agent || ''),
+          ip: x.ip || '',
+          createdAt: x.created,
+          lastSeen: x.last_seen || x.created,
+          expires: x.expires,
+          current: x.sid === current?.sid,
+          live,
+        };
+      }),
+    });
+  }
+
+  if (p === '/api/auth/sessions/revoke' && method === 'POST') {
+    const auth = requireAuth(req, res);
+    if (!auth) return;
+    const body = await readJson(req);
+    const scope = String(body.scope || 'others');
+    const sid = String(body.sid || '');
+    const currentSid = session(req)?.sid;
+    let revoked = 0;
+
+    for (const [key, sess] of Object.entries(d.sessions)) {
+      if (sess.userId !== auth.user.id) continue;
+      const mineTarget = scope === 'one' ? key === sid : scope === 'all' ? true : key !== currentSid;
+      if (mineTarget) {
+        delete d.sessions[key];
+        revoked += 1;
+      }
+    }
+    persist();
+    note(req, 'session.revoke', { actor: auth.user, target: scope, detail: { revoked } });
+
+    if (scope === 'all') {
+      res.setHeader('Set-Cookie', 'sid=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
+    }
+    return json(res, 200, { ok: true, revoked, signedOut: scope === 'all' });
+  }
+
   return json(res, 404, { error: 'Unknown endpoint.' });
+}
+
+/* ---------------- CSV ---------------- */
+
+const csvCell = (v) => {
+  const str = v === null || v === undefined ? '' : String(v);
+  return /[",\r\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+};
+
+const toCsv = (rows) => rows.map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
+
+function sendCsv(res, filename, body) {
+  const buf = Buffer.from(String.fromCharCode(0xfeff) + body, 'utf8'); // BOM: Excel opens it cleanly
+  res.writeHead(200, {
+    'Content-Type': 'text/csv; charset=utf-8',
+    'Content-Disposition': `attachment; filename="${filename.replace(/[^a-zA-Z0-9._-]/g, '-')}"`,
+    'Content-Length': buf.length,
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  res.end(buf);
+}
+
+/** Minimal RFC-4180 reader: quoted cells, escaped quotes, CRLF or LF. */
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let cell = '';
+  let quoted = false;
+  const src = String(text || '').replace(/^\uFEFF/, '');
+  for (let i = 0; i < src.length; i += 1) {
+    const ch = src[i];
+    if (quoted) {
+      if (ch === '"') {
+        if (src[i + 1] === '"') { cell += '"'; i += 1; } else quoted = false;
+      } else cell += ch;
+      continue;
+    }
+    if (ch === '"') { quoted = true; continue; }
+    if (ch === ',') { row.push(cell); cell = ''; continue; }
+    if (ch === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; continue; }
+    if (ch === '\r') continue;
+    cell += ch;
+  }
+  if (cell.length || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter((r) => r.some((c) => String(c).trim() !== ''));
 }
 
 function compactGrading(g) {
@@ -2083,12 +2557,15 @@ function serveStatic(req, res, url) {
       return res.end('Not found');
     }
     const ext = path.extname(filePath);
-    res.writeHead(200, {
+    const headers = {
       'Content-Type': MIME[ext] || 'application/octet-stream',
       // HTML/JS/CSS must never be served stale: an old bundle can call routes
       // that no longer exist. Assets are small, so no-store costs nothing here.
       'Cache-Control': ['.html', '.js', '.css'].includes(ext) ? 'no-store' : 'public, max-age=3600',
-    });
+      ...SECURITY_HEADERS,
+    };
+    if (ext === '.html' || ext === '') headers['Content-Security-Policy'] = CONTENT_SECURITY_POLICY;
+    res.writeHead(200, headers);
     res.end(data);
   });
 }
@@ -2125,6 +2602,36 @@ process.on('uncaughtException', (err) => {
   console.error('[uncaughtException]', err && err.stack ? err.stack : err);
 });
 
+/* ---------------- shutdown ----------------
+   Finish in-flight requests, flush the database, close it cleanly. Without
+   this a SIGTERM during a write is the one way to lose committed data. */
+
+let shuttingDown = false;
+
+function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`\n[shutdown] ${signal} — finishing requests…`);
+  clearInterval(HOUSEKEEPING);
+
+  const done = () => {
+    try {
+      closeStore();
+      console.log('[shutdown] database closed cleanly');
+    } catch (err) {
+      console.error('[shutdown] close failed:', err.message);
+    }
+    process.exit(0);
+  };
+
+  server.close(done);
+  // Do not hang forever on a stuck socket.
+  setTimeout(done, 5000).unref?.();
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
 server.listen(PORT, HOST, () => {
   const d = db();
   console.log(`\n  ${PLATFORM.name} · ${SCHOOL.name}`);
@@ -2136,6 +2643,11 @@ server.listen(PORT, HOST, () => {
   );
   console.log(`  GradeScriptUG: ${isDemo() ? 'DEMO MODE (no platform key connected)' : `LIVE (${keyHint()})`}`);
   console.log(`  Platform key owner: ${ADMIN_EMAIL}`);
+  const store = dbStats();
+  console.log(
+    `  Storage: SQLite · ${store.file || 'volyx.db'} · ${Math.round((store.bytes || 0) / 1024)} KB · ` +
+      `audit entries: ${store.counts?.audit_log ?? 0}`
+  );
   console.log(`  Mail: ${mailMode()}${mailMode() === 'dev' ? ' — verification codes print here and on screen' : ''}`);
   console.log(`  Admin account:  ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}`);
   console.log(`  Demo teacher:   ${DEMO_EMAIL} / ${DEMO_PASSWORD}\n`);
