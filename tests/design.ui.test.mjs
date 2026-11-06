@@ -87,16 +87,26 @@ const tick = (ms = 60) => new Promise((r) => setTimeout(r, ms));
     return { hue, sat: sat * 100, light: l * 100 };
   };
 
+  const chroma = (h) => (Math.max(...[1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16))) -
+                         Math.min(...[1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16))));
+
   const canvas = hsl(hex('n-50'));
+  const paperHex = hex('n-0');
   const chrome = hsl(hex('brand-800'));
   const accent = hsl(hex('accent-500'));
 
-  check('60% is blue', canvas.hue >= 195 && canvas.hue <= 250 && canvas.sat > 20, `hue ${Math.round(canvas.hue)}° sat ${Math.round(canvas.sat)}%`);
-  check('60% is a light surface, not a mid tone', canvas.light > 88, `${Math.round(canvas.light)}% lightness`);
-  check('30% is charcoal', chrome.light < 25 && chrome.sat <= 20, `L ${Math.round(chrome.light)}% · S ${Math.round(chrome.sat)}%`);
-  check('10% is pink', accent.hue >= 300 || accent.hue <= 350, `hue ${Math.round(accent.hue)}°`);
-  check('10% is a light pink, not a hot magenta', accent.light > 70 && accent.sat < 80, `L ${Math.round(accent.light)}% · S ${Math.round(accent.sat)}%`);
-  check('the palette carries no green or gold', !/#[0-9a-f]{6}/i.test('') || !/--accent-500:\s*#(e|d)[0-9a-f]?[bc]/i.test(css));
+  check('60% is an off-white canvas', canvas.light > 95 && chroma(hex('n-50')) <= 12, `L ${Math.round(canvas.light)}% · chroma ${chroma(hex('n-50'))}/255`);
+  check('60% canvas is warm, not a blue wash', canvas.hue >= 20 && canvas.hue <= 60, `hue ${Math.round(canvas.hue)}°`);
+  check('60% cards are crisp white', /^#f{6}$/i.test(paperHex), paperHex);
+  check('30% is deep navy', chrome.hue >= 190 && chrome.hue <= 250 && chrome.light < 20 && chroma(hex('brand-800')) > 20, `hue ${Math.round(chrome.hue)}° · L ${Math.round(chrome.light)}%`);
+  check('10% is amber gold', accent.hue >= 25 && accent.hue <= 55, `hue ${Math.round(accent.hue)}°`);
+  check('10% is a vibrant accent, not a muted brown', accent.sat > 55 && accent.light > 45, `S ${Math.round(accent.sat)}% · L ${Math.round(accent.light)}%`);
+
+  const allHex = [...new Set((css + appSource).match(/#[0-9a-fA-F]{6}\b/g) || [])].map(hsl);
+  const greens = allHex.filter((c) => c.hue >= 60 && c.hue <= 170 && c.sat > 12);
+  const pinks = allHex.filter((c) => c.hue > 285 && c.hue <= 355);
+  check('no green survives anywhere in the sheet', greens.length === 0, `${greens.length} green-hued values`);
+  check('no pink survives anywhere in the sheet', pinks.length === 0, `${pinks.length} pink-hued values`);
 }
 
 /* ---------------- contrast ---------------- */
