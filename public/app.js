@@ -187,7 +187,7 @@ function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
   store.set('volyx.theme', theme);
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', theme === 'dark' ? '#0f1a2c' : '#08152b');
+  if (meta) meta.setAttribute('content', theme === 'dark' ? '#0b1220' : '#0b1220');
   const btn = document.getElementById('theme-btn');
   if (btn) btn.textContent = theme === 'dark' ? '☀' : '☾';
 }
@@ -1016,7 +1016,7 @@ function sparkline(terms) {
   return `
     <div class="spark">
       <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
-        <polyline points="${points}" fill="none" stroke="rgba(242,169,59,.85)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <polyline points="${points}" fill="none" stroke="rgba(6,182,212,.85)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
         ${dots}
       </svg>
       <div class="spark-legend">
@@ -1546,8 +1546,8 @@ function drawMarks(svg, annotations, pageWidth, pageHeight) {
         cx: fx,
         cy: y + glyph * 0.35,
         r: glyph * 0.36,
-        fill: '#fdf3e1',
-        stroke: '#b4720c',
+        fill: '#ecfeff',
+        stroke: '#0e7490',
         'stroke-width': Math.max(1, pageWidth * 0.002),
       });
       addIn(
@@ -1555,7 +1555,7 @@ function drawMarks(svg, annotations, pageWidth, pageHeight) {
         {
           x: fx,
           y: y + glyph * 0.35 + textSize * 0.38,
-          fill: '#8a5a00',
+          fill: '#0e7490',
           'font-size': textSize * 0.95,
           'text-anchor': 'middle',
           'font-weight': 700,
@@ -1814,9 +1814,9 @@ function markedScriptHTML(detail, scope) {
       .page-pdf { border:1px dashed var(--line); border-radius:10px; padding:1.2rem; text-align:center; background:var(--canvas); }
       .page-legend { display:flex; gap:.4rem; flex-wrap:wrap; margin-top:.45rem; }
       .amk { display:inline-block; font-size:.75rem; font-weight:700; padding:.1rem .35rem; border-radius:999px; letter-spacing:.02em; }
-      .amk-tick { background:rgba(27,58,102,.12); color:var(--blue-700); }
+      .amk-tick { background:rgba(15,23,42,.12); color:var(--blue-700); }
       .amk-cross { background:rgba(179,38,30,.12); color:var(--danger); }
-      .amk-partial { background:rgba(180,114,12,.16); color:var(--pink-700); }
+      .amk-partial { background:rgba(6,182,212,.16); color:var(--pink-700); }
       .amk-mark, .amk-comment { background:var(--blue-100); color:var(--blue-700); }
       .amk-blank, .amk-crossed_out { background:var(--blue-100); color:var(--ink-3); }
       .annot-list { margin:.45rem 0 0; padding-left:1.1rem; font-size:.875rem; color:var(--ink-2); }
@@ -1852,7 +1852,7 @@ function markedScriptHTML(detail, scope) {
       .marks-layer.focus [data-qref]:not(.hit) { opacity:.12; }
       .marks-layer.focus [data-qref].hit .mark-box { display:block; }
       .page-card.flash { animation: pageFlash 1.1s ease-out 1; }
-      @keyframes pageFlash { from { box-shadow:0 0 0 3px rgba(180,114,12,.45); } to { box-shadow:0 0 0 0 rgba(180,114,12,0); } }
+      @keyframes pageFlash { from { box-shadow:0 0 0 3px rgba(6,182,212,.45); } to { box-shadow:0 0 0 0 rgba(6,182,212,0); } }
       .q-flag { color:var(--warn); font-weight:700; font-size:.75rem; margin-left:.25rem; }
     </style>`;
 }

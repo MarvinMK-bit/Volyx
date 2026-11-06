@@ -95,18 +95,20 @@ const tick = (ms = 60) => new Promise((r) => setTimeout(r, ms));
   const chrome = hsl(hex('brand-800'));
   const accent = hsl(hex('accent-500'));
 
-  check('60% is an off-white canvas', canvas.light > 95 && chroma(hex('n-50')) <= 12, `L ${Math.round(canvas.light)}% · chroma ${chroma(hex('n-50'))}/255`);
-  check('60% canvas is warm, not a blue wash', canvas.hue >= 20 && canvas.hue <= 60, `hue ${Math.round(canvas.hue)}°`);
+  check('60% is a soft light canvas', canvas.light > 95 && chroma(hex('n-50')) <= 8, `L ${Math.round(canvas.light)}% · chroma ${chroma(hex('n-50'))}/255`);
+  check('60% canvas is cool light grey, not warm', canvas.hue >= 180 && canvas.hue <= 250, `hue ${Math.round(canvas.hue)}°`);
   check('60% cards are crisp white', /^#f{6}$/i.test(paperHex), paperHex);
-  check('30% is deep navy', chrome.hue >= 190 && chrome.hue <= 250 && chrome.light < 20 && chroma(hex('brand-800')) > 20, `hue ${Math.round(chrome.hue)}° · L ${Math.round(chrome.light)}%`);
-  check('10% is amber gold', accent.hue >= 25 && accent.hue <= 55, `hue ${Math.round(accent.hue)}°`);
-  check('10% is a vibrant accent, not a muted brown', accent.sat > 55 && accent.light > 45, `S ${Math.round(accent.sat)}% · L ${Math.round(accent.light)}%`);
+  check('30% is dark slate', chrome.hue >= 200 && chrome.hue <= 250 && chrome.light < 20 && chroma(hex('brand-800')) > 20, `hue ${Math.round(chrome.hue)}° · L ${Math.round(chrome.light)}%`);
+  check('10% is neon cyan', accent.hue >= 175 && accent.hue <= 200, `hue ${Math.round(accent.hue)}°`);
+  check('10% is a vibrant accent, not a muted teal', accent.sat > 60 && accent.light >= 30 && accent.light <= 60, `S ${Math.round(accent.sat)}% · L ${Math.round(accent.light)}%`);
 
   const allHex = [...new Set((css + appSource).match(/#[0-9a-fA-F]{6}\b/g) || [])].map(hsl);
   const greens = allHex.filter((c) => c.hue >= 60 && c.hue <= 170 && c.sat > 12);
   const pinks = allHex.filter((c) => c.hue > 285 && c.hue <= 355);
+  const warms = allHex.filter((c) => c.hue >= 20 && c.hue <= 55 && c.sat > 35);
   check('no green survives anywhere in the sheet', greens.length === 0, `${greens.length} green-hued values`);
   check('no pink survives anywhere in the sheet', pinks.length === 0, `${pinks.length} pink-hued values`);
+  check('no warm amber survives anywhere in the sheet', warms.length === 0, `${warms.length} warm-hued values`);
 }
 
 /* ---------------- contrast ---------------- */

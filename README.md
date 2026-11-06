@@ -380,17 +380,18 @@ The interface follows three rules, and `tests/design.ui.test.mjs` enforces them.
 
 | Share | Role | Tokens | Where you see it |
 |---|---|---|---|
-| **60%** | **off-white** — the dominant surface | `--n-0 #ffffff`, `--n-25 #fdfcf9`, `--n-50 #faf8f4`, `--n-100 #f4f1ea`, `--line #e6e1d8`, `--ink … --ink-3` | canvas, cards, tables, body text |
-| **30%** | **deep navy** — structure | `--brand-*` / `--char-*` / `--blue-*` (`--char-800 #0c1e3c`, `--char-700 #122a4e`) | top bar, headings, table heads, links, dark bands |
-| **10%** | **amber gold** — the one thing to act on | `--accent-*` / `--pink-*` (`--accent-500 #f2a93b`, hover `#f7bd63`, text-safe `#96600a`) | primary button, active nav, focus ring, flagged rows |
+| **60%** | **soft light grey** — the dominant surface | `--n-0 #ffffff`, `--n-25 #fbfcfe`, `--n-50 #f8fafc`, `--n-100 #f1f5f9`, `--line #e2e8f0`, `--ink … --ink-3` | canvas, cards, tables, body text |
+| **30%** | **dark slate** — structure | `--brand-*` / `--char-*` / `--blue-*` (`--char-800 #0f172a`, `--char-700 #1e293b`, `--char-600 #334155`) | toolbar, sidebar, headings, table heads, links |
+| **10%** | **neon cyan** — the one thing to act on | `--accent-*` / `--pink-*` (`--accent-500 #06b6d4`, hover `#22d3ee`, pressed `#0891b2`, text-safe `#0e7490`) | primary button, active nav, focus ring, flagged rows |
 
-The accent is never decorative — if it is amber, it is clickable or it is the state you must notice.
-Amber buttons carry **navy labels**, never white (white on amber would be 1.9:1). Errors keep a red
+The accent is never decorative — if it is cyan, it is clickable or it is the state you must notice.
+Cyan buttons carry **dark slate labels**, never white (white on `#06b6d4` is 2.3:1). Errors keep a red
 semantic token; everything else stays inside the three colours. Dark mode keeps the same split at
-night (deep navy canvas, navy chrome, the same amber). Contrast is asserted by the test suite: body
-text 13.1:1 (AAA), muted 12px labels 5.1:1 (AA), the amber button label 8.3:1 (AAA), white chrome on
-the navy bar 16.6:1 (AAA). The hue itself is asserted too — 60% must be a warm off-white (chroma
-≤ 12/255), 30% a deep navy, 10% a vibrant amber — and the sheet must contain no green or pink value at all.
+night (deep slate canvas, slate chrome, the same cyan). Contrast is asserted by the test suite: body
+text 14.0:1 (AAA), muted 12px labels 4.6:1 (AA), the cyan button label 7.4:1 (AAA), white chrome on
+the slate bar 17.9:1 (AAA). The hue itself is asserted too — 60% must be a cool light grey (chroma
+≤ 8/255), 30% dark slate, 10% a vibrant cyan — and the sheet must contain no green, pink or warm
+amber value at all.
 
 **Type — one scale, nothing below 12px.** `--fs-2xs 12 · --fs-xs 13 · --fs-sm 14 · --fs-md 16 ·
 --fs-lg 18 · --fs-xl 22 · --fs-2xl 28`, body at `16px / 1.6`, line length capped by `--measure`
@@ -427,7 +428,7 @@ npm test         # api · platform.api · platform.ui · viewer.ui · upload.ui
 | `platform.ui.test.mjs` | 25 | role picker, admin platform page, teacher/student views (jsdom) |
 | `viewer.ui.test.mjs` | 51 | the marked-work viewer: annotation glyphs, grade maths, question ⇄ mark spotlight |
 | `upload.ui.test.mjs` | 13 | upload resilience: inline reasons, retry, photo conversion, confirmation |
-| `design.ui.test.mjs` | 43 | the off-white/navy/amber 60/30/10 palette, type floor and scale, `COPY`, contrast, one action per screen |
+| `design.ui.test.mjs` | 44 | the light-grey/slate/cyan 60/30/10 palette, type floor and scale, `COPY`, contrast, one action per screen |
 
 ---
 
