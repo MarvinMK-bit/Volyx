@@ -753,7 +753,9 @@ function authForm() {
                  autocomplete="one-time-code" value="${esc(a.fields?.code || '')}" required />
           <div class="hint">
             Sent to <span class="mono">${esc(a.email)}</span> · valid for 15 minutes.
-            ${c.devCodes ? '<br>No mail server is configured, so the code is shown above and in the server log.' : ''}
+            ${c.devCodes
+              ? '<br>No mail server is configured, so the code is shown above and in the server log.'
+              : `<br>Sent to <strong>${esc(a.email || 'your inbox')}</strong> — check the inbox and the spam folder.`}
           </div>
         </div>
         ${a.error ? `<div class="notice notice-danger">${esc(a.error)}</div>` : ''}
@@ -3409,6 +3411,33 @@ async function renderTeacherSettings() {
       </div>
 
       <div>
+        <div class="card card-pad" style="margin-bottom:1rem" id="mail-card">
+          <h3 style="font-size:1rem;margin-bottom:.6rem">Email delivery</h3>
+          <p class="small muted" style="margin-bottom:.7rem">
+            Verification codes go wherever this is pointed. Send yourself a test to prove it.
+          </p>
+          <div class="keybox" style="margin-bottom:.8rem">
+            <span class="status-dot ${state.config.mailMode === 'dev' ? 'dot-off' : 'dot-ok'}"></span>
+            <div style="flex:1">
+              <div style="font-weight:600;font-size:.9375rem">${esc(mailLabel(state.config.mailMode))}</div>
+              <div class="muted small">${
+                state.config.mailMode === 'dev'
+                  ? 'Codes are shown on screen. Set GMAIL_USER + GMAIL_APP_PASSWORD to email them.'
+                  : `From ${esc(state.config.mailFrom || '')}`
+              }</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:.5rem;align-items:flex-end;flex-wrap:wrap">
+            <div class="field" style="margin:0;flex:1;min-width:180px">
+              <label for="mail-test-to">Send a test to</label>
+              <input id="mail-test-to" type="email" inputmode="email" autocapitalize="none" spellcheck="false"
+                     value="${esc(state.user?.email || '')}" />
+            </div>
+            <button class="btn btn-primary" type="button" id="mail-test">Send test email</button>
+          </div>
+          <div id="mail-test-result" class="small" style="margin-top:.6rem"></div>
+        </div>
+
         <div class="card card-pad" style="margin-bottom:1rem">
           <h3 style="font-size:1rem;margin-bottom:.6rem">Sign-in · Google</h3>
           <p class="small muted" style="margin-bottom:.6rem">
@@ -3449,7 +3478,9 @@ async function renderTeacherSettings() {
           <h3 style="font-size:1rem;margin-bottom:.6rem">Mail</h3>
           <p class="small muted" style="margin:0">
             Verification codes are sent by <span class="mono">${esc(state.config.mailMode)}</span>${
-              state.config.mailMode === 'dev' ? ' — in development the code is shown on screen and printed in the server log. Set RESEND_API_KEY to deliver real email.' : '.'
+              state.config.mailMode === 'dev'
+                ? ' — no mail server is configured, so codes are shown on screen and printed in the server log. Set GMAIL_USER + GMAIL_APP_PASSWORD (or SMTP_HOST/SMTP_USER/SMTP_PASS) to email them for real.'
+                : ` — from <span class="mono">${esc(state.config.mailFrom || '')}</span>.`
             }
           </p>
         </div>
@@ -3485,6 +3516,27 @@ async function renderTeacherSettings() {
   };
   loadDiag();
   document.getElementById('diag-refresh')?.addEventListener('click', loadDiag);
+
+  const mailTest = document.getElementById('mail-test');
+  if (mailTest)
+    mailTest.addEventListener('click', async () => {
+      const box = document.getElementById('mail-test-result');
+      const to = document.getElementById('mail-test-to').value.trim();
+      mailTest.disabled = true;
+      mailTest.innerHTML = '<span class="spinner"></span> Sending…';
+      box.innerHTML = '';
+      try {
+        const res = await api('/api/admin/mail/test', { method: 'POST', body: { to } });
+        box.innerHTML = `<span class="badge badge-ok">sent</span> <span class="muted">${esc(res.message || '')}</span>`;
+        toast(res.message || 'Test email sent.');
+      } catch (err) {
+        box.innerHTML = `<span class="badge badge-danger">failed</span> <span class="muted">${esc(err.message || 'Could not send.')}</span>`;
+        toast(err.message || 'Could not send the test email.', true);
+      } finally {
+        mailTest.disabled = false;
+        mailTest.textContent = 'Send test email';
+      }
+    });
 
   const keyForm = document.getElementById('key-form');
   if (keyForm) keyForm.addEventListener('submit', async (e) => {
@@ -3723,6 +3775,13 @@ async function mountSessionsCard() {
 /* ============================================================
    AUDIT LOG (admin) — backend: GET /api/admin/audit
    ============================================================ */
+
+function mailLabel(mode) {
+  if (mode === 'gmail') return 'Gmail SMTP — real email';
+  if (mode === 'smtp') return 'SMTP relay — real email';
+  if (mode === 'resend') return 'Resend — real email';
+  return 'Not configured — codes shown on screen';
+}
 
 const AUDIT_LABEL = {
   'auth.login': 'Signed in',

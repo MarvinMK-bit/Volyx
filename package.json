@@ -5,13 +5,16 @@
   "description": "Volyx — turns GradeScriptUG-marked scripts into report cards students open with their school email.",
   "type": "module",
   "main": "server.js",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
     "boot": "bash start.sh"
   },
   "dependencies": {
-    "better-sqlite3": "^11.10.0"
+    "better-sqlite3": "^11.10.0",
+    "nodemailer": "^10.4.0"
   }
 }

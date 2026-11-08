@@ -42,6 +42,16 @@ services:
       - key: ADMIN_EMAIL
         value: ryanroject@gmail.com
 
+      # Verification codes are emailed through this mailbox. Gmail needs an
+      # App password (2-Step Verification on → myaccount.google.com/apppasswords).
+      # Leave both blank to start in on-screen dev mode and fill them in later
+      # on the Render dashboard; alternatives: SMTP_HOST/SMTP_USER/SMTP_PASS
+      # or RESEND_API_KEY.
+      - key: GMAIL_USER
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false
+
       # Secrets: Render asks for these once, when you apply the blueprint.
       - key: ADMIN_PASSWORD
         sync: false

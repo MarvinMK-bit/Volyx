@@ -80,7 +80,16 @@ import {
   CODE_MAX_ATTEMPTS,
   SESSION_HOURS,
 } from './lib/auth.js';
-import { sendVerificationCode, sendStudentCredentials, mailMode, devCodeAllowed } from './lib/mailer.js';
+import {
+  sendVerificationCode,
+  sendStudentCredentials,
+  sendMail,
+  mailMode,
+  devCodeAllowed,
+  mailFrom,
+  mailSummary,
+  verifyMailer,
+} from './lib/mailer.js';
 import { buildLoginEmail, tempPassword, studentAccount } from './lib/credentials.js';
 import { savePages, pagePath, contentTypeFor, removePages } from './lib/storage.js';
 
@@ -800,12 +809,18 @@ async function issueCode({ email, purpose, user }) {
     schoolName: SCHOOL.name,
   });
 
+  /* The code only ever reaches the browser when there is no mail server at
+     all, or when an operator explicitly asks for that with
+     MAIL_SCREEN_FALLBACK=1 (handy on a laptop with no SMTP). Once Gmail or any
+     other transport is configured, a failed send is reported as a failure — the
+     code is never flashed on screen instead. */
+  const screenFallback = devCodeAllowed() || String(process.env.MAIL_SCREEN_FALLBACK || '') === '1';
+
   return {
     delivered: delivery.delivered,
     transport: delivery.transport,
-    // In development there is no mail server, so the code is returned to the
-    // client and printed in the console. Never happens once Resend is wired up.
-    devCode: delivery.delivered ? undefined : code,
+    error: delivery.delivered ? undefined : delivery.error,
+    devCode: delivery.delivered || !screenFallback ? undefined : code,
   };
 }
 
@@ -978,6 +993,7 @@ async function handleApi(req, res, url) {
       demo: isDemo(),
       googleClientId: googleClientId(),
       mailMode: mailMode(),
+      mailFrom: mailFrom(),
       devCodes: devCodeAllowed(),
       key: { status: d.settings.keyStatus, hint: keyHint(), checkedAt: d.settings.keyCheckedAt, message: d.settings.keyMessage },
       pollSeconds: GRADESCRIPT.pollSeconds,
@@ -1036,8 +1052,10 @@ async function handleApi(req, res, url) {
       needsVerification: true,
       delivery,
       message: delivery.delivered
-        ? `We sent a 6-digit code to ${email}.`
-        : 'No mail server is configured, so the code is shown here and printed in the server log.',
+        ? `We emailed a 6-digit code to ${email}. Check the inbox (and the spam folder).`
+        : delivery.devCode
+          ? 'No mail server is configured, so the code is shown here and printed in the server log.'
+          : `We could not send the email: ${delivery.error || 'the mail server did not accept it.'}`, 
     });
   }
 
@@ -1095,8 +1113,10 @@ async function handleApi(req, res, url) {
       purpose,
       delivery,
       message: delivery.delivered
-        ? `We sent a 6-digit code to ${email}.`
-        : 'No mail server is configured, so the code is shown here and printed in the server log.',
+        ? `We emailed a 6-digit code to ${email}. Check the inbox (and the spam folder).`
+        : delivery.devCode
+          ? 'No mail server is configured, so the code is shown here and printed in the server log.'
+          : `We could not send the email: ${delivery.error || 'the mail server did not accept it.'}`,
     });
   }
 
@@ -1184,7 +1204,13 @@ async function handleApi(req, res, url) {
       return json(res, 200, { ok: true, message: 'If that account exists, a reset code is on its way.' });
     }
     const delivery = await issueCode({ email, purpose: 'reset' });
-    return json(res, 200, { ok: true, delivery, message: 'If that account exists, a reset code is on its way.' });
+    return json(res, 200, {
+      ok: true,
+      delivery,
+      message: delivery.delivered
+        ? `If that account exists, a reset code is on its way to ${email}.`
+        : 'If that account exists, a reset code is on its way.',
+    });
   }
 
   if (p === '/api/auth/reset' && method === 'POST') {
@@ -1504,7 +1530,7 @@ async function handleApi(req, res, url) {
       to: student.email,
       credentials,
       message: delivery.delivered
-        ? `Login details sent to ${student.email}.`
+        ? `Login details emailed to ${student.email}.`
         : 'No mail server is configured, so the details are shown here instead — copy them across.',
     });
   }
@@ -1790,6 +1816,7 @@ async function handleApi(req, res, url) {
       },
       demo: isDemo(),
       storage: dbStats(),
+      mail: mailSummary(),
       recent: readAudit({ limit: 8 }).entries,
     });
   }
@@ -2192,6 +2219,64 @@ async function handleApi(req, res, url) {
     return json(res, 200, { ok: true, removed });
   }
 
+  /* ================= MAIL DELIVERY (admin only) =================
+     Whether codes are really emailed is the kind of thing that should be
+     provable in one click, not discovered when a student cannot sign in. */
+
+  if (p === '/api/admin/mail' && method === 'GET') {
+    const auth = requireAdmin(req, res);
+    if (!auth) return;
+    const check = await verifyMailer();
+    return json(res, 200, { ok: true, ...mailSummary(), check });
+  }
+
+  if (p === '/api/admin/mail/test' && method === 'POST') {
+    const auth = requireAdmin(req, res);
+    if (!auth) return;
+    const body = await readJson(req).catch(() => ({}));
+    const to = normEmail(body.to || auth.user.email);
+    if (!validEmail(to)) return json(res, 400, { error: 'Enter a valid email address to send the test to.' });
+    if (rateLimited(`mailtest:${auth.user.id}`, 6)) {
+      return json(res, 429, { error: 'That is a lot of test emails. Wait a few minutes.' });
+    }
+
+    const mode = mailMode();
+    const result = await sendMail({
+      to,
+      subject: `${SCHOOL.shortName || 'Volyx'} · test email from Volyx`,
+      text: [
+        'This is a test email from Volyx.',
+        '',
+        'If you can read this, verification codes will reach your inbox as well.',
+        '',
+        `Transport: ${mode}`,
+      ].join('\n'),
+      html: `<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:#1e293b;line-height:1.55">
+        <h2 style="color:#312e81;margin:0 0 8px">Volyx is connected</h2>
+        <p>This is a test email from <strong>${escHtml(SCHOOL.name)}</strong>'s Volyx portal.</p>
+        <p>If you can read this, verification codes will reach your inbox too.</p>
+        <p style="color:#5b6b80;font-size:13px">Transport: ${escHtml(mode)} · ${escHtml(mailFrom())}</p>
+      </div>`,
+    });
+
+    note(req, 'platform.mail.test', {
+      actor: auth.user,
+      target: to,
+      detail: { delivered: result.delivered, transport: result.transport, error: result.error || null },
+    });
+
+    return json(res, result.delivered ? 200 : 502, {
+      ok: result.delivered,
+      delivered: result.delivered,
+      transport: result.transport,
+      to,
+      error: result.error || null,
+      message: result.delivered
+        ? `Test email sent to ${to}. Check the inbox (and the spam folder).`
+        : `Could not send: ${result.error || 'the mail server did not accept it.'}`,
+    });
+  }
+
   /* ================= AUDIT TRAIL (admin only) ================= */
 
   if (p === '/api/admin/audit' && method === 'GET') {
@@ -2511,6 +2596,9 @@ function parseCsv(text) {
   return rows.filter((r) => r.some((c) => String(c).trim() !== ''));
 }
 
+const escHtml = (v) =>
+  String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
 function compactGrading(g) {
   const student = db().students.find((s) => s.id === g.studentId);
   return {
@@ -2651,7 +2739,17 @@ server.listen(PORT, HOST, () => {
     `  Storage: SQLite · ${store.file || 'volyx.db'} · ${Math.round((store.bytes || 0) / 1024)} KB · ` +
       `audit entries: ${store.counts?.audit_log ?? 0}`
   );
-  console.log(`  Mail: ${mailMode()}${mailMode() === 'dev' ? ' — verification codes print here and on screen' : ''}`);
+  const mail = mailSummary();
+  if (mail.mode === 'dev') {
+    console.log('  Mail: DEV — no mail server configured; codes print here and appear on screen.');
+    console.log('        Set GMAIL_USER + GMAIL_APP_PASSWORD (or SMTP_HOST/SMTP_USER/SMTP_PASS) to email them.');
+  } else {
+    console.log(`  Mail: ${mail.mode} · from ${mail.from}${mail.host ? ` · ${mail.host}` : ''}`);
+    verifyMailer().then((check) => {
+      if (check.ok) console.log('        ✓ mail server reachable — verification codes are emailed');
+      else console.warn(`        ✗ mail server NOT reachable — ${check.reason}`);
+    });
+  }
   console.log(`  Admin account:  ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}`);
   console.log(`  Demo teacher:   ${DEMO_EMAIL} / ${DEMO_PASSWORD}\n`);
 });

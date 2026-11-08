@@ -287,6 +287,67 @@ checkpoints the WAL before exiting — so a restart never loses a committed writ
 
 ---
 
+## Email — codes that actually arrive
+
+A verification code is only useful if it reaches an inbox. Volyx emails codes through whichever
+transport you configure, and **once one is configured the code is never shown on screen again** —
+that is deliberate, so a stranger at the keyboard cannot read someone else's code.
+
+### Gmail in four steps (fastest real setup)
+
+1. Use a Google account you control, e.g. `volyxschool@gmail.com`.
+2. Turn on **2-Step Verification** (Google Account → Security). App passwords do not exist without it.
+3. Go to <https://myaccount.google.com/apppasswords>, name it `Volyx`, and copy the 16-character
+   password Google shows you.
+4. Set two variables and restart:
+
+```bash
+GMAIL_USER=volyxschool@gmail.com
+GMAIL_APP_PASSWORD=abcd efgh ijkl mnop     # spaces are ignored
+```
+
+Codes now arrive in any inbox — Gmail, Outlook, Yahoo, a school domain — sent *from* that Gmail
+address. Confirm it from **Platform → Email delivery → Send test email**; the result is recorded in
+the audit log.
+
+> Use an **App password**, never the normal Google password. Google blocks plain-password SMTP, and
+> the error surfaces in the app as “Gmail rejected the app password”.
+
+### Any other provider
+
+```bash
+SMTP_HOST=smtp.gmail.com        # or smtp-relay.brevo.com, smtp.mailgun.org, smtp.zoho.com…
+SMTP_PORT=465                   # 465 = implicit TLS, 587 = STARTTLS
+SMTP_SECURE=true
+SMTP_USER=you@yourdomain.com
+SMTP_PASS=the-password-or-api-key
+MAIL_FROM="St Brigid SS <results@yourdomain.com>"
+```
+
+`SMTP_URL=smtps://user:pass@host:465` does the same job in one variable. `RESEND_API_KEY` is still
+supported and needs no open ports at all — best for production volume.
+
+### What happens when sending fails
+
+| Situation | What the app does |
+|---|---|
+| No transport configured | **dev mode**: the code is printed in the server log and shown on screen, labelled as a dev code |
+| Transport configured, send succeeds | code is emailed; the response says “We emailed a 6-digit code to …”; it is never returned to the browser |
+| Transport configured, send fails | signup reports **“We could not send the email: …”** with the reason — it never silently falls back to showing the code |
+| You want the old behaviour locally anyway | `MAIL_SCREEN_FALLBACK=1` (never set this in production) |
+
+### Limits worth knowing
+
+- A free Gmail account sends roughly **500 recipients a day**; Google Workspace about 2,000. Fine for a
+  class, tight for a whole school — use Resend or your school's SMTP relay at that point.
+- App passwords are per-account. If the password is revoked, codes stop — the admin screen shows the
+  failure instead of pretending.
+- Codes expire in 15 minutes, allow 5 attempts, and are stored hashed.
+- If mail ever stops arriving, check the recipient's spam folder first, then
+  **Platform → Email delivery** for the live status.
+
+---
+
 ## Deploy on Render
 
 Volyx ships with a [Blueprint](https://render.com/docs/blueprint-spec) — `render.yaml` — so the whole
