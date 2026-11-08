@@ -18,8 +18,12 @@ Teacher uploads pages ──▶ POST /grading ──▶ polled until graded
 
 ```bash
 cd gradescript-portal
-./start.sh         # installs the dependency if it is missing, then starts
+npm run boot       # installs the dependency if it is missing, then starts
 ```
+
+(`bash start.sh` does the same thing; `./start.sh` also works on a normal checkout — but the script
+is always readable, so `npm run boot` is the version that cannot be tripped up by a lost
+executable bit on a restored or copied filesystem.)
 
 or, step by step:
 
