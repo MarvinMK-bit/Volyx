@@ -18,6 +18,12 @@ Teacher uploads pages ──▶ POST /grading ──▶ polled until graded
 
 ```bash
 cd gradescript-portal
+./start.sh         # installs the dependency if it is missing, then starts
+```
+
+or, step by step:
+
+```bash
 npm install        # one dependency: better-sqlite3 (prebuilt binary, no compiler)
 npm start
 ```
