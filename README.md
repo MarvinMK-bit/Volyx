@@ -277,6 +277,74 @@ checkpoints the WAL before exiting — so a restart never loses a committed writ
 
 ---
 
+## Deploy on Render
+
+Volyx ships with a [Blueprint](https://render.com/docs/blueprint-spec) — `render.yaml` — so the whole
+service (runtime, build, health check, persistent disk and environment) is declared in the repo.
+
+### The two-minute path (recommended)
+
+1. Push this repo to GitHub (already done: `MarvinMK-bit/Volyx`).
+2. In the Render dashboard: **New +** → **Blueprint**.
+3. Pick the `Volyx` repo. Render reads `render.yaml` and shows: a web service `volyx`,
+   a 1 GB disk at `/var/data`, and four secrets to fill in.
+4. Fill the secrets (all optional except the password):
+
+   | Key | What to put |
+   |---|---|
+   | `ADMIN_PASSWORD` | the password you want for `ryanroject@gmail.com` on first boot |
+   | `GRADESCRIPT_API_KEY` | leave blank to start in demo mode; the admin can also paste it in the UI |
+   | `GOOGLE_CLIENT_ID` | your OAuth client id, to turn on “Continue with Google” |
+   | `RESEND_API_KEY` | to send verification codes by real email (blank = codes print in the log) |
+
+5. **Apply**. First build takes a couple of minutes; Render polls `/api/health` until it is green.
+6. Open the URL, sign in as `ryanroject@gmail.com` with the password you set, and connect the
+   GradeScriptUG key on **Platform**.
+
+### Why the disk matters
+
+The database is SQLite, so the files must outlive a deploy:
+
+```
+/var/data/volyx.db            the database
+/var/data/backups/*.db        one snapshot per day, last 7 kept
+/var/data/uploads/<id>/       the script pages annotations are drawn over
+/var/data/volyx.log           upload diagnostics
+```
+
+`VOLYX_DATA_DIR=/var/data` in `render.yaml` puts all of them there in one move. Without a disk the
+filesystem is wiped on every deploy, restart or free-tier sleep — the app would come back empty.
+That is why the blueprint asks for the **Starter** plan; a disk is not available on free instances.
+
+### Doing it by hand instead of the blueprint
+
+**New +** → **Web Service** → the repo, then:
+
+| Setting | Value |
+|---|---|
+| Runtime | Node |
+| Build command | `npm install --omit=dev` |
+| Start command | `npm start` |
+| Health check path | `/api/health` |
+| Environment | `NODE_ENV=production`, `VOLYX_DATA_DIR=/var/data`, `ADMIN_EMAIL=ryanroject@gmail.com` |
+| Disk | name `volyx-data`, mount path `/var/data`, 1 GB |
+| Secret | `ADMIN_PASSWORD`, plus whichever of the API key / Google / Resend you use |
+
+### Notes once it is live
+
+- **One instance only.** SQLite takes a single writer; leave the instance count at 1. Horizontal
+  scaling would need Postgres — the data layer is isolated in `lib/store.js` if you ever want that.
+- **`NODE_ENV=production` requires HTTPS** (Render gives it), because the session cookie is then
+  marked `Secure`.
+- **Custom domain:** add it in Render → Settings → Custom Domains, then add that origin to your
+  Google OAuth client so Google sign-in keeps working.
+- **Backups** are written to the disk daily. Download `/var/data/backups/` from Render's shell
+  (`Shell` tab) before any risky change.
+- **Free tier**, if you only want to look around: it works, but sleeps after 15 minutes and loses the
+  database on every restart. Use it for a demo, not for a school.
+
+---
+
 ## Turn on Sign in with Google
 
 1. <https://console.cloud.google.com> → create (or pick) a project.

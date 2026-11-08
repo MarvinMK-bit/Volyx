@@ -94,7 +94,10 @@ const HOST = process.env.HOST || '0.0.0.0';
    can be explained after the fact instead of guessed at. */
 
 const ROOT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.join(ROOT_DIR, 'data');
+// Keep the log beside the database: ./data locally, the mounted disk in the cloud.
+const DATA_DIR = process.env.VOLYX_DATA_DIR
+  ? path.resolve(process.env.VOLYX_DATA_DIR)
+  : path.join(ROOT_DIR, 'data');
 const LOG_FILE = path.join(DATA_DIR, 'volyx.log');
 const LOG_LIMIT = 2 * 1024 * 1024;
 

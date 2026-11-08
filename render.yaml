@@ -1,0 +1,53 @@
+# ============================================================
+# Render Blueprint — https://render.com/docs/blueprint-spec
+#
+#   Render dashboard → New + → Blueprint → pick this repo → Apply
+#
+# One web service, one persistent disk. The disk is what makes SQLite a
+# real choice: the database, the daily backups and the uploaded script
+# pages all live on /var/data and survive every redeploy.
+# ============================================================
+
+services:
+  - type: web
+    name: volyx
+    runtime: node
+    plan: starter            # disks need a paid instance; free tier is ephemeral
+    region: frankfurt        # closest Render region to Uganda
+    branch: main
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+
+    disk:
+      name: volyx-data
+      mountPath: /var/data
+      sizeGB: 1
+
+    envVars:
+      # Every file the app writes — database, backups, uploads, log.
+      - key: VOLYX_DATA_DIR
+        value: /var/data
+
+      # Secure session cookies; Render terminates TLS for you.
+      - key: NODE_ENV
+        value: production
+
+      # Pin the runtime the app is tested against.
+      - key: NODE_VERSION
+        value: 20.20.2
+
+      # The one account allowed to hold the GradeScriptUG platform key.
+      - key: ADMIN_EMAIL
+        value: ryanroject@gmail.com
+
+      # Secrets: Render asks for these once, when you apply the blueprint.
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: GRADESCRIPT_API_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
