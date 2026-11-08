@@ -12,6 +12,6 @@
     "boot": "bash start.sh"
   },
   "dependencies": {
-    "better-sqlite3": "^11.10.0"
+    "sqlite3": "^5.1.7"
   }
 }
